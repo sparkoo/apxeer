@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.99.1",
     "preact": "^10.25.4",
     "wouter": "^3.7.1"
   },

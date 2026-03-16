@@ -1,15 +1,18 @@
 import type { CompareData, LapMetadata, Session } from "./types";
+import { supabase } from "./supabase";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
-const DEV_TOKEN = import.meta.env.VITE_DEV_TOKEN;
 
-function authHeaders(): HeadersInit {
-  if (DEV_TOKEN) return { Authorization: `Bearer ${DEV_TOKEN}` };
+async function authHeaders(): Promise<HeadersInit> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.access_token) {
+    return { Authorization: `Bearer ${session.access_token}` };
+  }
   return {};
 }
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, { headers: authHeaders() });
+  const res = await fetch(`${API_URL}${path}`, { headers: await authHeaders() });
   if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
   return res.json();
 }
