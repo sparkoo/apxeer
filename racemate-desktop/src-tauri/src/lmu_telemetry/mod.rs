@@ -211,6 +211,7 @@ impl Drop for SharedMemoryLock {
 ///
 /// Returns `Err` if the shared memory file is not available (i.e. LMU is not
 /// running) or if any Windows API call fails.
+#[allow(dead_code)]
 pub fn read_telemetry() -> Result<Box<SharedMemoryObjectOut>, String> {
     // Convert the name to a wide (UTF-16) string for OpenFileMappingW
     let wide_name: Vec<u16> = LMU_SHARED_MEMORY_FILE
@@ -256,7 +257,7 @@ pub fn read_telemetry() -> Result<Box<SharedMemoryObjectOut>, String> {
         }
 
         // Heap-allocate the destination to avoid ~190 KB stack usage
-        let mut out = Box::<SharedMemoryObjectOut>::new(Default::default());
+        let mut out = Box::<SharedMemoryObjectOut>::default();
 
         // Copy from the memory-mapped region into our owned buffer
         ptr::copy_nonoverlapping(
@@ -363,7 +364,7 @@ impl SharedMemoryReader {
                 lock.lock();
             }
 
-            let mut out = Box::<SharedMemoryObjectOut>::new(Default::default());
+            let mut out = Box::<SharedMemoryObjectOut>::default();
 
             ptr::copy_nonoverlapping(
                 &(*self.view_ptr).data as *const SharedMemoryObjectOut,
