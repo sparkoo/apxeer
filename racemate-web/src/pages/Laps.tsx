@@ -1,39 +1,41 @@
 import { useState, useEffect } from "preact/hooks";
-import { useLocation } from "wouter";
 import { api } from "@/lib/api";
-import { LapMetadata, formatLapTime } from "@/lib/types";
+import { LapMetadata, formatLapTime, formatDelta } from "@/lib/types";
+import { useCompare } from "@/lib/compare-context";
 
 export function Laps() {
   const [laps, setLaps] = useState<LapMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string[]>([]);
-  const [, navigate] = useLocation();
+  const [activeClass, setActiveClass] = useState<string | null>(null);
+  const [activeTrack, setActiveTrack] = useState<string | null>(null);
+  const { selected, toggle, clear } = useCompare();
 
   useEffect(() => {
     api.laps.list().then(setLaps).catch((e) => setError(e.message)).finally(() => setLoading(false));
   }, []);
 
-  const toggle = (id: string) => {
-    setSelected((prev) => {
-      if (prev.includes(id)) return prev.filter((x) => x !== id);
-      if (prev.length >= 2) return [prev[1], id];
-      return [...prev, id];
-    });
+  const classes = Array.from(new Set(laps.map((l) => l.car_class).filter(Boolean))) as string[];
+
+  const selectClass = (cls: string) => {
+    if (cls === activeClass) return;
+    setActiveClass(cls);
+    setActiveTrack(null);
+    clear();
   };
 
-  const compare = () => {
-    if (selected.length === 2) {
-      navigate(`/compare?lap_a=${selected[0]}&lap_b=${selected[1]}`);
-    }
+  const byClassLaps = activeClass ? laps.filter((l) => l.car_class === activeClass) : [];
+  const tracks = Array.from(new Set(byClassLaps.map((l) => l.track_name ?? l.track_id)));
+
+  const selectTrack = (track: string) => {
+    if (track === activeTrack) return;
+    setActiveTrack(track);
+    clear();
   };
 
-  // Group laps by track
-  const byTrack = laps.reduce<Record<string, LapMetadata[]>>((acc, lap) => {
-    const key = lap.track_name ?? lap.track_id;
-    (acc[key] ??= []).push(lap);
-    return acc;
-  }, {});
+  const filtered = activeTrack ? byClassLaps.filter((l) => (l.track_name ?? l.track_id) === activeTrack) : [];
+  const sortedLaps = [...filtered].sort((a, b) => a.lap_time_ms - b.lap_time_ms);
+  const best = sortedLaps[0]?.lap_time_ms ?? 0;
 
   if (loading) return <p class="text-[var(--muted)]">Loading...</p>;
   if (error) return <p class="text-red-500">{error}</p>;
@@ -41,20 +43,59 @@ export function Laps() {
 
   return (
     <div class="max-w-4xl mx-auto flex flex-col gap-6">
-      <div class="flex items-center justify-between">
+      <div class="flex flex-col gap-3">
         <h1 class="text-xl font-bold">Laps</h1>
-        <button
-          onClick={compare}
-          disabled={selected.length < 2}
-          class="px-4 py-1.5 text-sm rounded bg-[var(--accent)] text-white disabled:opacity-30 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
-        >
-          Compare {selected.length}/2
-        </button>
+
+        {/* Step 1: class */}
+        <div class="flex items-center gap-2 flex-wrap">
+          {classes.map((cls) => (
+            <button
+              key={cls}
+              onClick={() => selectClass(cls)}
+              class={`px-3 py-1 text-sm rounded-full border transition-colors ${
+                activeClass === cls
+                  ? "border-[var(--accent)] text-[var(--accent)] bg-[var(--accent)]/10"
+                  : "border-[var(--border)] text-[var(--muted)] hover:border-[var(--text)] hover:text-[var(--text)]"
+              }`}
+            >
+              {cls}
+            </button>
+          ))}
+        </div>
+
+        {/* Step 2: track */}
+        {activeClass && (
+          <div class="flex items-center gap-2 flex-wrap">
+            {tracks.map((track) => (
+              <button
+                key={track}
+                onClick={() => selectTrack(track)}
+                class={`px-3 py-1 text-sm rounded-full border transition-colors ${
+                  activeTrack === track
+                    ? "border-[var(--accent)] text-[var(--accent)] bg-[var(--accent)]/10"
+                    : "border-[var(--border)] text-[var(--muted)] hover:border-[var(--text)] hover:text-[var(--text)]"
+                }`}
+              >
+                {track}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {Object.entries(byTrack).map(([track, trackLaps]) => (
-        <div key={track}>
-          <h2 class="text-sm font-semibold text-[var(--muted)] uppercase tracking-wider mb-2">{track}</h2>
+      {!activeClass ? (
+        <p class="text-[var(--muted)] text-sm">Select a car class to get started.</p>
+      ) : !activeTrack ? (
+        <p class="text-[var(--muted)] text-sm">Select a track to see laps.</p>
+      ) : sortedLaps.length === 0 ? (
+        <p class="text-[var(--muted)] text-sm">No laps found.</p>
+      ) : (
+        <div>
+          <div class="flex items-baseline gap-3 mb-2">
+            <h2 class="text-sm font-semibold text-[var(--text)] uppercase tracking-wider">{activeTrack}</h2>
+            <span class="text-xs text-[var(--muted)]">{sortedLaps.length} lap{sortedLaps.length !== 1 ? "s" : ""}</span>
+            <span class="text-xs font-mono text-[var(--muted)]">best {formatLapTime(best)}</span>
+          </div>
           <div class="border border-[var(--border)] rounded-lg overflow-hidden">
             <table class="w-full text-sm">
               <thead class="border-b border-[var(--border)] text-[var(--muted)]">
@@ -62,6 +103,7 @@ export function Laps() {
                   <th class="text-left px-4 py-2 font-normal">Car</th>
                   <th class="text-right px-4 py-2 font-normal">Lap</th>
                   <th class="text-right px-4 py-2 font-normal">Time</th>
+                  <th class="text-right px-4 py-2 font-normal">Delta</th>
                   <th class="text-right px-4 py-2 font-normal">S1</th>
                   <th class="text-right px-4 py-2 font-normal">S2</th>
                   <th class="text-right px-4 py-2 font-normal">S3</th>
@@ -70,20 +112,24 @@ export function Laps() {
                 </tr>
               </thead>
               <tbody>
-                {trackLaps.map((lap, i) => {
-                  const sel = selected.includes(lap.id);
-                  const selIdx = selected.indexOf(lap.id);
+                {sortedLaps.map((lap, i) => {
+                  const selIdx = selected.findIndex((l) => l.id === lap.id);
+                  const sel = selIdx !== -1;
+                  const delta = lap.lap_time_ms - best;
                   return (
                     <tr
                       key={lap.id}
-                      class={`border-t border-[var(--border)] ${i === 0 ? "border-t-0" : ""} ${sel ? "bg-[var(--surface)]" : "hover:bg-[var(--surface)]"} transition-colors`}
+                      onClick={() => toggle(lap)}
+                      class={`border-t border-[var(--border)] cursor-pointer ${i === 0 ? "border-t-0" : ""} ${sel ? "bg-[var(--surface)]" : "hover:bg-[var(--surface)]"} transition-colors`}
                     >
-                      <td class="px-4 py-2.5">
-                        <span class="text-[var(--text)]">{lap.car_name}</span>
-                        <span class="ml-2 text-xs text-[var(--muted)]">{lap.car_class}</span>
-                      </td>
+                      <td class="px-4 py-2.5 text-[var(--text)]">{lap.car_name}</td>
                       <td class="px-4 py-2.5 text-right text-[var(--muted)]">{lap.lap_number}</td>
-                      <td class="px-4 py-2.5 text-right font-mono font-semibold">{formatLapTime(lap.lap_time_ms)}</td>
+                      <td class={`px-4 py-2.5 text-right font-mono font-semibold ${i === 0 ? "text-[var(--green)]" : ""}`}>
+                        {formatLapTime(lap.lap_time_ms)}
+                      </td>
+                      <td class="px-4 py-2.5 text-right font-mono text-[var(--muted)]">
+                        {i === 0 ? <span class="text-[var(--green)]">—</span> : formatDelta(delta)}
+                      </td>
                       <td class="px-4 py-2.5 text-right font-mono text-[var(--muted)]">{lap.s1_ms ? formatLapTime(lap.s1_ms) : "—"}</td>
                       <td class="px-4 py-2.5 text-right font-mono text-[var(--muted)]">{lap.s2_ms ? formatLapTime(lap.s2_ms) : "—"}</td>
                       <td class="px-4 py-2.5 text-right font-mono text-[var(--muted)]">{lap.s3_ms ? formatLapTime(lap.s3_ms) : "—"}</td>
@@ -91,16 +137,11 @@ export function Laps() {
                         {new Date(lap.recorded_at).toLocaleDateString()}
                       </td>
                       <td class="px-4 py-2.5 text-right">
-                        <button
-                          onClick={() => toggle(lap.id)}
-                          class={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                            sel
-                              ? "border-[var(--accent)] text-[var(--accent)] bg-[var(--accent)]/10"
-                              : "border-[var(--border)] text-[var(--muted)] hover:border-[var(--text)]"
-                          }`}
-                        >
-                          {sel ? (selIdx === 0 ? "A" : "B") : "Select"}
-                        </button>
+                        {sel && (
+                          <span class="text-xs font-bold text-[var(--accent)]">
+                            {selIdx === 0 ? "A" : "B"}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -109,7 +150,7 @@ export function Laps() {
             </table>
           </div>
         </div>
-      ))}
+      )}
     </div>
   );
 }

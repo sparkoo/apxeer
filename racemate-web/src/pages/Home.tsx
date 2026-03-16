@@ -3,9 +3,11 @@ import { Link } from "wouter";
 import { api } from "@/lib/api";
 import type { LapMetadata } from "@/lib/types";
 import { formatLapTime } from "@/lib/types";
+import { useCompare } from "@/lib/compare-context";
 
 export function Home() {
   const [recentLaps, setRecentLaps] = useState<LapMetadata[]>([]);
+  const { selected, lockedClass, toggle } = useCompare();
 
   useEffect(() => {
     api.laps.list().then((laps) => setRecentLaps(laps.slice(0, 10))).catch(() => {});
@@ -56,26 +58,41 @@ export function Home() {
                   <th class="text-left px-4 py-2.5 font-normal">Car</th>
                   <th class="text-right px-4 py-2.5 font-normal">Time</th>
                   <th class="text-right px-4 py-2.5 font-normal">Date</th>
+                  <th class="px-4 py-2.5 w-10" />
                 </tr>
               </thead>
               <tbody>
-                {recentLaps.map((lap, i) => (
-                  <tr
-                    key={lap.id}
-                    class={`border-t border-[var(--border)] hover:bg-[var(--surface)] transition-colors ${i === 0 ? "border-t-0" : ""}`}
-                  >
-                    <td class="px-4 py-2.5 text-[var(--muted)]">{lap.username ?? "—"}</td>
-                    <td class="px-4 py-2.5">{lap.track_name ?? lap.track_id}</td>
-                    <td class="px-4 py-2.5 text-[var(--muted)]">
-                      {lap.car_name}
-                      {lap.car_class && <span class="ml-2 text-xs opacity-60">{lap.car_class}</span>}
-                    </td>
-                    <td class="px-4 py-2.5 text-right font-mono font-semibold">{formatLapTime(lap.lap_time_ms)}</td>
-                    <td class="px-4 py-2.5 text-right text-[var(--muted)]">
-                      {new Date(lap.recorded_at).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
+                {recentLaps.map((lap, i) => {
+                  const selIdx = selected.findIndex((l) => l.id === lap.id);
+                  const sel = selIdx !== -1;
+                  const incompatible = !sel && lockedClass !== null && lap.car_class !== lockedClass;
+                  return (
+                    <tr
+                      key={lap.id}
+                      onClick={() => !incompatible && toggle(lap)}
+                      title={incompatible ? `Class mismatch — selection locked to ${lockedClass}` : undefined}
+                      class={`border-t border-[var(--border)] transition-colors ${i === 0 ? "border-t-0" : ""} ${incompatible ? "opacity-30 cursor-not-allowed" : sel ? "bg-[var(--surface)] cursor-pointer" : "hover:bg-[var(--surface)] cursor-pointer"}`}
+                    >
+                      <td class="px-4 py-2.5 text-[var(--muted)]">{lap.username ?? "—"}</td>
+                      <td class="px-4 py-2.5">{lap.track_name ?? lap.track_id}</td>
+                      <td class="px-4 py-2.5 text-[var(--muted)]">
+                        {lap.car_name}
+                        {lap.car_class && <span class="ml-2 text-xs opacity-60">{lap.car_class}</span>}
+                      </td>
+                      <td class="px-4 py-2.5 text-right font-mono font-semibold">{formatLapTime(lap.lap_time_ms)}</td>
+                      <td class="px-4 py-2.5 text-right text-[var(--muted)]">
+                        {new Date(lap.recorded_at).toLocaleDateString()}
+                      </td>
+                      <td class="px-4 py-2.5 text-right w-10">
+                        {sel && (
+                          <span class="text-xs font-bold text-[var(--accent)]">
+                            {selIdx === 0 ? "A" : "B"}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
