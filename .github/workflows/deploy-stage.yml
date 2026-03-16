@@ -1,0 +1,14 @@
+name: Deploy → stage
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      api_app: apexless-api-stage
+      web_app: apexless-web-stage
+      vite_api_url: https://apexless-api-stage.fly.dev
+    secrets: inherit

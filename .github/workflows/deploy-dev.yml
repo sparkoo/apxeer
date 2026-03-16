@@ -1,0 +1,13 @@
+name: Deploy → dev
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      api_app: apexless-api-dev
+      web_app: apexless-web-dev
+      vite_api_url: https://apexless-api-dev.fly.dev
+    secrets: inherit

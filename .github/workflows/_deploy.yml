@@ -1,0 +1,58 @@
+name: Deploy (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      api_app:
+        description: Fly.io app name for the API
+        type: string
+        required: true
+      web_app:
+        description: Fly.io app name for the web frontend
+        type: string
+        required: true
+      vite_api_url:
+        description: Public URL of the API for this environment
+        type: string
+        required: true
+    secrets:
+      FLY_API_TOKEN:
+        required: true
+      VITE_SUPABASE_URL:
+        required: true
+      VITE_SUPABASE_ANON_KEY:
+        required: true
+
+jobs:
+  deploy-api:
+    name: Deploy API → ${{ inputs.api_app }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        run: flyctl deploy --remote-only --app ${{ inputs.api_app }}
+        working-directory: racemate-api
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  deploy-web:
+    name: Deploy web → ${{ inputs.web_app }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        run: |
+          flyctl deploy --remote-only \
+            --app ${{ inputs.web_app }} \
+            --build-arg VITE_API_URL=${{ inputs.vite_api_url }} \
+            --build-arg VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }} \
+            --build-arg VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        working-directory: racemate-web
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

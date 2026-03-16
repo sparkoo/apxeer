@@ -1,0 +1,32 @@
+# App name is overridden at deploy time with --app flag.
+# Create apps on Fly.io first:
+#   flyctl apps create apexless-api
+#   flyctl apps create apexless-api-stage
+#   flyctl apps create apexless-api-dev
+app = 'apexless-api'
+primary_region = 'iad'
+
+[build]
+
+[env]
+  PORT = '8080'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+  [http_service.checks]
+    grace_period = '5s'
+    interval = '30s'
+    method = 'get'
+    path = '/health'
+    timeout = '5s'
+
+[[vm]]
+  memory = '256mb'
+  cpu_kind = 'shared'
+  cpus = 1
