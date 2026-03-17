@@ -60,6 +60,60 @@ type UploadSessionRequest struct {
 	SessionBlocks []UploadSessionBlock `json:"session_blocks"`
 }
 
+// ListSessions handles GET /api/sessions (public — no auth required).
+func ListSessions(db *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.Query(r.Context(), `
+			SELECT s.id, s.track_id, s.session_type, s.event_name, s.started_at, s.duration_min,
+			       t.name AS track_name, t.length_m
+			FROM sessions s
+			JOIN tracks t ON t.id = s.track_id
+			ORDER BY s.started_at DESC
+			LIMIT 50
+		`)
+		if err != nil {
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		type TrackRow struct {
+			ID       string  `json:"id"`
+			Name     string  `json:"name"`
+			LengthM  float64 `json:"length_m"`
+			MapPath  *string `json:"map_path"`
+		}
+		type SessionRow struct {
+			ID          string   `json:"id"`
+			TrackID     string   `json:"track_id"`
+			SessionType string   `json:"session_type"`
+			EventName   string   `json:"event_name"`
+			StartedAt   string   `json:"started_at"`
+			DurationMin int      `json:"duration_min"`
+			Track       TrackRow `json:"track"`
+		}
+
+		sessions := []SessionRow{}
+		for rows.Next() {
+			var s SessionRow
+			var startedAt time.Time
+			if err := rows.Scan(
+				&s.ID, &s.TrackID, &s.SessionType, &s.EventName, &startedAt, &s.DurationMin,
+				&s.Track.Name, &s.Track.LengthM,
+			); err != nil {
+				http.Error(w, "db scan error", http.StatusInternalServerError)
+				return
+			}
+			s.StartedAt = startedAt.Format(time.RFC3339)
+			s.Track.ID = s.TrackID
+			sessions = append(sessions, s)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(sessions)
+	}
+}
+
 // UploadSession handles POST /api/sessions
 // Ingests a full parsed XML result file.
 func UploadSession(db *pgxpool.Pool) http.HandlerFunc {

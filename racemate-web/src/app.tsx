@@ -6,6 +6,7 @@ import { CompareTray } from "@/components/CompareTray";
 import { Home } from "@/pages/Home";
 import { Compare } from "@/pages/Compare";
 import { Sessions } from "@/pages/Sessions";
+import { SessionDetail } from "@/pages/SessionDetail";
 import { Laps } from "@/pages/Laps";
 import { Login } from "@/pages/Login";
 
@@ -20,6 +21,7 @@ export function App() {
             <Route path="/laps" component={Laps} />
             <Route path="/compare" component={Compare} />
             <Route path="/sessions" component={Sessions} />
+            <Route path="/sessions/:id" component={SessionDetail} />
             <Route path="/login" component={Login} />
           </Router>
         </main>

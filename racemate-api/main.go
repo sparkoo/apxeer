@@ -51,6 +51,7 @@ func main() {
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/laps", api.ListLaps(pool))
+		r.Get("/sessions", api.ListSessions(pool))
 		r.Get("/compare", api.Compare(pool, store))
 
 		r.With(api.RequireAuth).Post("/laps", api.UploadLap(pool, store))
