@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Dark rounded background -->
+  <rect width="32" height="32" rx="7" fill="#111113"/>
+  <!-- Track corner boundaries -->
+  <path d="M6 26 L6 8 Q6 6 8 6 L26 6" stroke="#3a3a3e" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- Racing apex line -->
+  <path d="M6 26 Q20 26 26 20 Q30 16 26 6" stroke="#e8304a" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+</svg>
