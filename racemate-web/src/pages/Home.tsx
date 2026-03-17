@@ -4,14 +4,58 @@ import { api } from "@/lib/api";
 import type { LapMetadata } from "@/lib/types";
 import { formatLapTime } from "@/lib/types";
 import { useCompare } from "@/lib/compare-context";
+import { useAuth } from "@/lib/auth";
+
+const ONBOARDING_STEPS = [
+  {
+    label: "Download the desktop recorder",
+    detail: (
+      <span>
+        Grab the latest release from{" "}
+        <a
+          href="https://github.com/sparkoo/apexless/releases"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-[var(--accent)] hover:underline"
+        >
+          GitHub Releases
+        </a>
+        .
+      </span>
+    ),
+  },
+  {
+    label: "Point it at your LMU results folder",
+    detail: <span>Open Settings in the recorder and set your LMU results path (e.g. <code class="text-xs bg-[var(--border)] px-1 py-0.5 rounded">Documents/Le Mans Ultimate/UserData/Log/Results</code>).</span>,
+  },
+  {
+    label: "Record a lap — it uploads automatically",
+    detail: <span>Jump in-game. The recorder detects lap boundaries and uploads each completed lap.</span>,
+  },
+  {
+    label: "Come back here to compare",
+    detail: <span>Once your first lap is uploaded it will appear below and you can start comparing.</span>,
+  },
+];
 
 export function Home() {
   const [recentLaps, setRecentLaps] = useState<LapMetadata[]>([]);
+  const [userHasLaps, setUserHasLaps] = useState<boolean | null>(null);
   const { selected, lockedClass, toggle } = useCompare();
+  const { user } = useAuth();
 
   useEffect(() => {
     api.laps.list().then((laps) => setRecentLaps(laps.slice(0, 10))).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    api.laps.list(undefined, user.id)
+      .then((laps) => setUserHasLaps(laps.length > 0))
+      .catch(() => { /* leave null — don't show onboarding on error */ });
+  }, [user]);
+
+  const showOnboarding = !!user && userHasLaps === false;
 
   return (
     <div class="max-w-4xl mx-auto flex flex-col gap-14 mt-10">
@@ -39,6 +83,29 @@ export function Home() {
           </Link>
         </div>
       </div>
+
+      {/* Onboarding checklist — shown to logged-in users with no laps yet */}
+      {showOnboarding && (
+        <div>
+          <div class="mb-4">
+            <h2 class="text-xs font-semibold text-[var(--muted)] uppercase tracking-widest mb-1">Getting Started</h2>
+            <p class="text-sm text-[var(--muted)]">Follow these steps to record and compare your first lap.</p>
+          </div>
+          <ol class="flex flex-col gap-3">
+            {ONBOARDING_STEPS.map((step, i) => (
+              <li key={i} class="flex gap-4 border border-[var(--border)] rounded-lg p-4">
+                <div class="mt-0.5 flex-shrink-0 w-5 h-5 rounded-full border-2 border-[var(--border)] flex items-center justify-center text-xs font-bold text-[var(--muted)]">
+                  {i + 1}
+                </div>
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-sm font-medium">{step.label}</span>
+                  <span class="text-xs text-[var(--muted)] leading-relaxed">{step.detail}</span>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
 
       {/* Recent laps */}
       {recentLaps.length > 0 && (
