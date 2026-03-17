@@ -5,12 +5,30 @@ import type { LapMetadata } from "@/lib/types";
 import { formatLapTime } from "@/lib/types";
 import { useCompare } from "@/lib/compare-context";
 
+interface Stats {
+  totalLaps: number;
+  totalTracks: number;
+  totalSessions: number;
+  bestLap: { time: number; track: string } | null;
+}
+
 export function Home() {
   const [recentLaps, setRecentLaps] = useState<LapMetadata[]>([]);
+  const [stats, setStats] = useState<Stats | null>(null);
   const { selected, lockedClass, toggle } = useCompare();
 
   useEffect(() => {
-    api.laps.list().then((laps) => setRecentLaps(laps.slice(0, 10))).catch(() => {});
+    Promise.all([api.laps.list(), api.sessions.list()]).then(([laps, sessions]) => {
+      setRecentLaps(laps.slice(0, 10));
+      const uniqueTracks = new Set(laps.map((l) => l.track_id)).size;
+      let bestLap: Stats["bestLap"] = null;
+      for (const lap of laps) {
+        if (lap.is_valid && (bestLap === null || lap.lap_time_ms < bestLap.time)) {
+          bestLap = { time: lap.lap_time_ms, track: lap.track_name ?? lap.track_id };
+        }
+      }
+      setStats({ totalLaps: laps.length, totalTracks: uniqueTracks, totalSessions: sessions.length, bestLap });
+    }).catch(() => {});
   }, []);
 
   return (
@@ -39,6 +57,25 @@ export function Home() {
           </Link>
         </div>
       </div>
+
+      {/* Stats strip */}
+      {stats && (
+        <div class="flex gap-px bg-[var(--border)] rounded-lg overflow-hidden border border-[var(--border)]">
+          {[
+            { label: "Laps", value: stats.totalLaps },
+            { label: "Tracks", value: stats.totalTracks },
+            { label: "Sessions", value: stats.totalSessions },
+            ...(stats.bestLap
+              ? [{ label: `Best · ${stats.bestLap.track}`, value: formatLapTime(stats.bestLap.time) }]
+              : []),
+          ].map((stat) => (
+            <div key={stat.label} class="flex-1 bg-[var(--surface)] px-5 py-3 flex flex-col gap-0.5">
+              <span class="text-xl font-bold font-mono">{stat.value}</span>
+              <span class="text-xs text-[var(--muted)] truncate">{stat.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Recent laps */}
       {recentLaps.length > 0 && (
