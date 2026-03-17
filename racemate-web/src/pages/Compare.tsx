@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "preact/hooks";
+import { useSearch } from "wouter";
 import { api } from "@/lib/api";
 import { CompareData, formatLapTime } from "@/lib/types";
 import { TrackMap } from "@/components/TrackMap";
@@ -8,8 +9,10 @@ const COLOR_A = "#e8304a";
 const COLOR_B = "#3b82f6";
 
 export function Compare() {
-  const [lapAId, setLapAId] = useState("");
-  const [lapBId, setLapBId] = useState("");
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  const [lapAId, setLapAId] = useState(params.get("lap_a") ?? "");
+  const [lapBId, setLapBId] = useState(params.get("lap_b") ?? "");
   const [data, setData] = useState<CompareData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,12 +48,18 @@ export function Compare() {
     };
   }, [playing, data, speed]);
 
-  const load = async () => {
-    if (!lapAId || !lapBId) return;
+  useEffect(() => {
+    const a = params.get("lap_a");
+    const b = params.get("lap_b");
+    if (a && b) load(a, b);
+  }, []);
+
+  const load = async (aId = lapAId, bId = lapBId) => {
+    if (!aId || !bId) return;
     setLoading(true);
     setError(null);
     try {
-      const d = await api.compare(lapAId, lapBId);
+      const d = await api.compare(aId, bId);
       setData(d);
       setCursor(0);
       setPlaying(false);
@@ -92,7 +101,7 @@ export function Compare() {
           );
         })}
         <button
-          onClick={load}
+          onClick={() => load()}
           disabled={loading || !lapAId || !lapBId}
           class="px-4 py-2 bg-[var(--accent)] text-white rounded text-sm font-semibold disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
         >

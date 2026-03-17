@@ -2,16 +2,73 @@ import { useState, useEffect } from "preact/hooks";
 import { Link } from "wouter";
 import { api } from "@/lib/api";
 import type { LapMetadata } from "@/lib/types";
-import { formatLapTime } from "@/lib/types";
+import { formatLapTime, formatDelta } from "@/lib/types";
 import { useCompare } from "@/lib/compare-context";
+import { useAuth } from "@/lib/auth";
+
+interface PersonalBestRow {
+  trackId: string;
+  trackName: string;
+  carClass: string;
+  myBestLap: LapMetadata;
+  fastestLap: LapMetadata | null;
+}
 
 export function Home() {
   const [recentLaps, setRecentLaps] = useState<LapMetadata[]>([]);
+  const [personalBests, setPersonalBests] = useState<PersonalBestRow[]>([]);
   const { selected, lockedClass, toggle } = useCompare();
+  const { user } = useAuth();
 
   useEffect(() => {
     api.laps.list().then((laps) => setRecentLaps(laps.slice(0, 10))).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    api.users.laps(user.id).then(async (myLaps) => {
+      // Group by track_id + car_class, keep best lap per combo
+      const groups = new Map<string, LapMetadata>();
+      for (const lap of myLaps) {
+        const key = `${lap.track_id}:${lap.car_class ?? ""}`;
+        const existing = groups.get(key);
+        if (!existing || lap.lap_time_ms < existing.lap_time_ms) {
+          groups.set(key, lap);
+        }
+      }
+
+      // For each unique track, fetch all laps to find global fastest per class
+      const trackIds = [...new Set([...groups.values()].map((l) => l.track_id))];
+      const trackLapsMap = new Map<string, LapMetadata[]>();
+      await Promise.all(
+        trackIds.map(async (trackId) => {
+          const laps = await api.laps.list(trackId).catch(() => [] as LapMetadata[]);
+          trackLapsMap.set(trackId, laps);
+        }),
+      );
+
+      const rows: PersonalBestRow[] = [];
+      for (const myBest of groups.values()) {
+        const trackLaps = trackLapsMap.get(myBest.track_id) ?? [];
+        const classLaps = trackLaps.filter((l) => l.car_class === myBest.car_class);
+        const fastest = classLaps.reduce<LapMetadata | null>((acc, lap) => {
+          if (!acc || lap.lap_time_ms < acc.lap_time_ms) return lap;
+          return acc;
+        }, null);
+
+        rows.push({
+          trackId: myBest.track_id,
+          trackName: myBest.track_name ?? myBest.track_id,
+          carClass: myBest.car_class ?? "—",
+          myBestLap: myBest,
+          fastestLap: fastest,
+        });
+      }
+
+      setPersonalBests(rows);
+    }).catch(() => {});
+  }, [user]);
 
   return (
     <div class="max-w-4xl mx-auto flex flex-col gap-14 mt-10">
@@ -39,6 +96,73 @@ export function Home() {
           </Link>
         </div>
       </div>
+
+      {/* Personal Bests */}
+      {personalBests.length > 0 && (
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-xs font-semibold text-[var(--muted)] uppercase tracking-widest">Personal Bests</h2>
+          </div>
+          <div class="border border-[var(--border)] rounded-lg overflow-hidden">
+            <table class="w-full text-sm">
+              <thead class="border-b border-[var(--border)] text-[var(--muted)]">
+                <tr>
+                  <th class="text-left px-4 py-2.5 font-normal">Track</th>
+                  <th class="text-left px-4 py-2.5 font-normal">Class</th>
+                  <th class="text-right px-4 py-2.5 font-normal">Your Best</th>
+                  <th class="text-right px-4 py-2.5 font-normal">Fastest</th>
+                  <th class="text-right px-4 py-2.5 font-normal">Gap</th>
+                  <th class="px-4 py-2.5 w-28" />
+                </tr>
+              </thead>
+              <tbody>
+                {personalBests.map((row, i) => {
+                  const gap = row.fastestLap
+                    ? row.myBestLap.lap_time_ms - row.fastestLap.lap_time_ms
+                    : null;
+                  const isAlreadyFastest = gap !== null && gap <= 0;
+                  return (
+                    <tr
+                      key={`${row.trackId}:${row.carClass}`}
+                      class={`border-t border-[var(--border)] ${i === 0 ? "border-t-0" : ""}`}
+                    >
+                      <td class="px-4 py-2.5">{row.trackName}</td>
+                      <td class="px-4 py-2.5 text-[var(--muted)] text-xs">{row.carClass}</td>
+                      <td class="px-4 py-2.5 text-right font-mono font-semibold">
+                        {formatLapTime(row.myBestLap.lap_time_ms)}
+                      </td>
+                      <td class="px-4 py-2.5 text-right font-mono text-[var(--muted)]">
+                        {row.fastestLap ? formatLapTime(row.fastestLap.lap_time_ms) : "—"}
+                      </td>
+                      <td
+                        class={`px-4 py-2.5 text-right font-mono text-xs ${
+                          isAlreadyFastest ? "text-[var(--green)]" : "text-[var(--red)]"
+                        }`}
+                      >
+                        {gap !== null
+                          ? isAlreadyFastest
+                            ? "Fastest!"
+                            : `${formatDelta(gap)}s`
+                          : "—"}
+                      </td>
+                      <td class="px-4 py-2.5 text-right">
+                        {row.fastestLap && !isAlreadyFastest && (
+                          <Link
+                            href={`/compare?lap_a=${row.myBestLap.id}&lap_b=${row.fastestLap.id}`}
+                            class="text-xs text-[var(--accent)] hover:opacity-80 transition-opacity whitespace-nowrap"
+                          >
+                            Compare →
+                          </Link>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Recent laps */}
       {recentLaps.length > 0 && (
