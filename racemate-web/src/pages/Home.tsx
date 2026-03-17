@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "preact/hooks";
 import { Link } from "wouter";
 import { api } from "@/lib/api";
 import type { LapMetadata, Session } from "@/lib/types";
-import { formatLapTime } from "@/lib/types";
+import { formatLapTime, formatDelta } from "@/lib/types";
 import { useCompare } from "@/lib/compare-context";
 import { useAuth } from "@/lib/auth";
 
@@ -50,6 +50,7 @@ export function Home() {
   const [recentSessions, setRecentSessions] = useState<Session[]>([]);
   const [totalSessionCount, setTotalSessionCount] = useState<number | null>(null);
   const [allMyLaps, setAllMyLaps] = useState<LapMetadata[] | null>(null);
+  const [fastestByTrackClass, setFastestByTrackClass] = useState<Map<string, LapMetadata>>(new Map());
   const { selected, lockedClass, toggle } = useCompare();
   const { user } = useAuth();
 
@@ -92,6 +93,33 @@ export function Home() {
         lap,
       }));
   }, [allMyLaps]);
+
+  // Fetch global fastest lap per track+class for the competitive gap display
+  useEffect(() => {
+    if (personalBests.length === 0) {
+      setFastestByTrackClass(new Map());
+      return;
+    }
+    let cancelled = false;
+    const trackIds = [...new Set(personalBests.map((pb) => pb.lap.track_id))];
+    Promise.all(
+      trackIds.map((trackId) => api.laps.list(trackId).catch(() => [] as LapMetadata[])),
+    ).then((results) => {
+      if (cancelled) return;
+      const fastest = new Map<string, LapMetadata>();
+      for (const laps of results) {
+        for (const lap of laps) {
+          const key = `${lap.track_id}:${lap.car_class ?? ""}`;
+          const existing = fastest.get(key);
+          if (!existing || lap.lap_time_ms < existing.lap_time_ms) {
+            fastest.set(key, lap);
+          }
+        }
+      }
+      setFastestByTrackClass(fastest);
+    });
+    return () => { cancelled = true; };
+  }, [personalBests]);
 
   const stats = useMemo(() => {
     if (!allMyLaps || allMyLaps.length === 0) return null;
@@ -249,6 +277,8 @@ export function Home() {
                   <th class="text-right px-4 py-2.5 font-normal">S1</th>
                   <th class="text-right px-4 py-2.5 font-normal">S2</th>
                   <th class="text-right px-4 py-2.5 font-normal">S3</th>
+                  <th class="text-right px-4 py-2.5 font-normal">Fastest</th>
+                  <th class="text-right px-4 py-2.5 font-normal">Gap</th>
                   <th class="text-right px-4 py-2.5 font-normal">Date</th>
                   <th class="px-4 py-2.5 w-10" />
                 </tr>
@@ -258,6 +288,10 @@ export function Home() {
                   const selIdx = selected.findIndex((l) => l.id === lap.id);
                   const sel = selIdx !== -1;
                   const incompatible = !sel && lockedClass !== null && !!lap.car_class && lap.car_class !== lockedClass;
+                  const fastestKey = `${lap.track_id}:${lap.car_class ?? ""}`;
+                  const fastestLap = fastestByTrackClass.get(fastestKey) ?? null;
+                  const gap = fastestLap ? lap.lap_time_ms - fastestLap.lap_time_ms : null;
+                  const isAlreadyFastest = gap !== null && gap <= 0;
                   return (
                     <tr
                       key={lap.id}
@@ -277,15 +311,29 @@ export function Home() {
                       <td class="px-4 py-2.5 text-right font-mono text-[var(--muted)]">{lap.s1_ms != null ? formatLapTime(lap.s1_ms) : "—"}</td>
                       <td class="px-4 py-2.5 text-right font-mono text-[var(--muted)]">{lap.s2_ms != null ? formatLapTime(lap.s2_ms) : "—"}</td>
                       <td class="px-4 py-2.5 text-right font-mono text-[var(--muted)]">{lap.s3_ms != null ? formatLapTime(lap.s3_ms) : "—"}</td>
+                      <td class="px-4 py-2.5 text-right font-mono text-[var(--muted)]">
+                        {fastestLap ? formatLapTime(fastestLap.lap_time_ms) : "—"}
+                      </td>
+                      <td class={`px-4 py-2.5 text-right font-mono text-xs ${gap === null ? "text-[var(--muted)]" : isAlreadyFastest ? "text-[var(--green)]" : "text-[var(--red)]"}`}>
+                        {gap !== null ? (isAlreadyFastest ? "Fastest!" : formatDelta(gap)) : "—"}
+                      </td>
                       <td class="px-4 py-2.5 text-right text-[var(--muted)]">
                         {new Date(lap.recorded_at).toLocaleDateString()}
                       </td>
                       <td class="px-4 py-2.5 text-right w-10">
-                        {sel && (
+                        {sel ? (
                           <span class="text-xs font-bold text-[var(--accent)]">
                             {selIdx === 0 ? "A" : "B"}
                           </span>
-                        )}
+                        ) : (fastestLap && !isAlreadyFastest && (
+                          <Link
+                            href={`/compare?lap_a=${lap.id}&lap_b=${fastestLap.id}`}
+                            onClick={(e: MouseEvent) => e.stopPropagation()}
+                            class="text-xs text-[var(--accent)] hover:opacity-80 transition-opacity whitespace-nowrap"
+                          >
+                            Compare →
+                          </Link>
+                        ))}
                       </td>
                     </tr>
                   );
