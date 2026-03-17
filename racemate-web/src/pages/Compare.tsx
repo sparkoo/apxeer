@@ -10,9 +10,8 @@ const COLOR_B = "#3b82f6";
 
 export function Compare() {
   const search = useSearch();
-  const params = new URLSearchParams(search);
-  const [lapAId, setLapAId] = useState(params.get("lap_a") ?? "");
-  const [lapBId, setLapBId] = useState(params.get("lap_b") ?? "");
+  const [lapAId, setLapAId] = useState("");
+  const [lapBId, setLapBId] = useState("");
   const [data, setData] = useState<CompareData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,6 +21,21 @@ export function Compare() {
   const [speed, setSpeed] = useState(1);
   const rafRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const a = params.get("lap_a");
+    const b = params.get("lap_b");
+    if (!a || !b) return;
+    setLapAId(a);
+    setLapBId(b);
+    setLoading(true);
+    setError(null);
+    api.compare(a, b)
+      .then((d) => { setData(d); setCursor(0); setPlaying(false); })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load"))
+      .finally(() => setLoading(false));
+  }, [search]);
 
   useEffect(() => {
     if (!playing || !data) return;
@@ -48,18 +62,12 @@ export function Compare() {
     };
   }, [playing, data, speed]);
 
-  useEffect(() => {
-    const a = params.get("lap_a");
-    const b = params.get("lap_b");
-    if (a && b) load(a, b);
-  }, []);
-
-  const load = async (aId = lapAId, bId = lapBId) => {
-    if (!aId || !bId) return;
+  const load = async () => {
+    if (!lapAId || !lapBId) return;
     setLoading(true);
     setError(null);
     try {
-      const d = await api.compare(aId, bId);
+      const d = await api.compare(lapAId, lapBId);
       setData(d);
       setCursor(0);
       setPlaying(false);
@@ -101,7 +109,7 @@ export function Compare() {
           );
         })}
         <button
-          onClick={() => load()}
+          onClick={load}
           disabled={loading || !lapAId || !lapBId}
           class="px-4 py-2 bg-[var(--accent)] text-white rounded text-sm font-semibold disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
         >
