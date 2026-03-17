@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "preact/hooks";
+import { useSearch } from "wouter";
 import { api } from "@/lib/api";
 import { CompareData, formatLapTime } from "@/lib/types";
 import { TrackMap } from "@/components/TrackMap";
@@ -8,6 +9,7 @@ const COLOR_A = "#e8304a";
 const COLOR_B = "#3b82f6";
 
 export function Compare() {
+  const search = useSearch();
   const [lapAId, setLapAId] = useState("");
   const [lapBId, setLapBId] = useState("");
   const [data, setData] = useState<CompareData | null>(null);
@@ -19,6 +21,21 @@ export function Compare() {
   const [speed, setSpeed] = useState(1);
   const rafRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const a = params.get("lap_a");
+    const b = params.get("lap_b");
+    if (!a || !b) return;
+    setLapAId(a);
+    setLapBId(b);
+    setLoading(true);
+    setError(null);
+    api.compare(a, b)
+      .then((d) => { setData(d); setCursor(0); setPlaying(false); })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load"))
+      .finally(() => setLoading(false));
+  }, [search]);
 
   useEffect(() => {
     if (!playing || !data) return;
