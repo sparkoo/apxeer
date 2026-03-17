@@ -1,4 +1,4 @@
-import { useState, useEffect } from "preact/hooks";
+import { useState, useEffect, useMemo } from "preact/hooks";
 import { Link } from "wouter";
 import { api } from "@/lib/api";
 import type { LapMetadata, Session } from "@/lib/types";
@@ -38,10 +38,17 @@ const ONBOARDING_STEPS = [
   },
 ];
 
+interface PersonalBest {
+  track_name: string;
+  car_name: string;
+  car_class?: string;
+  lap: LapMetadata;
+}
+
 export function Home() {
   const [recentLaps, setRecentLaps] = useState<LapMetadata[]>([]);
   const [recentSessions, setRecentSessions] = useState<Session[]>([]);
-  const [userHasLaps, setUserHasLaps] = useState<boolean | null>(null);
+  const [allMyLaps, setAllMyLaps] = useState<LapMetadata[] | null>(null);
   const { selected, lockedClass, toggle } = useCompare();
   const { user } = useAuth();
 
@@ -51,13 +58,36 @@ export function Home() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
-    api.laps.list(undefined, user.id)
-      .then((laps) => setUserHasLaps(laps.length > 0))
-      .catch(() => { /* leave null — don't show onboarding on error */ });
+    if (!user) {
+      setAllMyLaps(null);
+      return;
+    }
+    api.users.laps(user.id)
+      .then(setAllMyLaps)
+      .catch(() => { /* leave null — don't show onboarding or personal bests on error */ });
   }, [user]);
 
-  const showOnboarding = !!user && userHasLaps === false;
+  const showOnboarding = !!user && allMyLaps !== null && allMyLaps.length === 0;
+
+  const personalBests = useMemo<PersonalBest[]>(() => {
+    if (!allMyLaps) return [];
+    const map = new Map<string, LapMetadata>();
+    for (const lap of allMyLaps) {
+      const key = `${lap.track_id}__${lap.car_id}`;
+      const existing = map.get(key);
+      if (!existing || lap.lap_time_ms < existing.lap_time_ms) {
+        map.set(key, lap);
+      }
+    }
+    return Array.from(map.values())
+      .sort((a, b) => (a.track_name ?? a.track_id).localeCompare(b.track_name ?? b.track_id))
+      .map((lap) => ({
+        track_name: lap.track_name ?? lap.track_id,
+        car_name: lap.car_name ?? lap.car_id,
+        car_class: lap.car_class,
+        lap,
+      }));
+  }, [allMyLaps]);
 
   return (
     <div class="max-w-4xl mx-auto flex flex-col gap-14 mt-10">
@@ -149,6 +179,69 @@ export function Home() {
                         {lap.car_class && <span class="ml-2 text-xs opacity-60">{lap.car_class}</span>}
                       </td>
                       <td class="px-4 py-2.5 text-right font-mono font-semibold">{formatLapTime(lap.lap_time_ms)}</td>
+                      <td class="px-4 py-2.5 text-right text-[var(--muted)]">
+                        {new Date(lap.recorded_at).toLocaleDateString()}
+                      </td>
+                      <td class="px-4 py-2.5 text-right w-10">
+                        {sel && (
+                          <span class="text-xs font-bold text-[var(--accent)]">
+                            {selIdx === 0 ? "A" : "B"}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Personal Bests */}
+      {personalBests.length > 0 && (
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-xs font-semibold text-[var(--muted)] uppercase tracking-widest">Personal Bests</h2>
+          </div>
+          <div class="border border-[var(--border)] rounded-lg overflow-hidden">
+            <table class="w-full text-sm">
+              <thead class="border-b border-[var(--border)] text-[var(--muted)]">
+                <tr>
+                  <th class="text-left px-4 py-2.5 font-normal">Track</th>
+                  <th class="text-left px-4 py-2.5 font-normal">Car / Class</th>
+                  <th class="text-right px-4 py-2.5 font-normal">Best Time</th>
+                  <th class="text-right px-4 py-2.5 font-normal">S1</th>
+                  <th class="text-right px-4 py-2.5 font-normal">S2</th>
+                  <th class="text-right px-4 py-2.5 font-normal">S3</th>
+                  <th class="text-right px-4 py-2.5 font-normal">Date</th>
+                  <th class="px-4 py-2.5 w-10" />
+                </tr>
+              </thead>
+              <tbody>
+                {personalBests.map(({ track_name, car_name, car_class, lap }, i) => {
+                  const selIdx = selected.findIndex((l) => l.id === lap.id);
+                  const sel = selIdx !== -1;
+                  const incompatible = !sel && lockedClass !== null && !!lap.car_class && lap.car_class !== lockedClass;
+                  return (
+                    <tr
+                      key={lap.id}
+                      onClick={() => !incompatible && toggle(lap)}
+                      onKeyDown={(e) => { if (!incompatible && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggle(lap); } }}
+                      tabIndex={incompatible ? undefined : 0}
+                      aria-disabled={incompatible || undefined}
+                      title={incompatible ? `Class mismatch — selection locked to ${lockedClass}` : undefined}
+                      class={`border-t border-[var(--border)] transition-colors ${i === 0 ? "border-t-0" : ""} ${incompatible ? "opacity-30 cursor-not-allowed" : sel ? "bg-[var(--surface)] cursor-pointer" : "hover:bg-[var(--surface)] cursor-pointer"}`}
+                    >
+                      <td class="px-4 py-2.5">{track_name}</td>
+                      <td class="px-4 py-2.5 text-[var(--muted)]">
+                        {car_name}
+                        {car_class && <span class="ml-2 text-xs opacity-60">{car_class}</span>}
+                      </td>
+                      <td class="px-4 py-2.5 text-right font-mono font-semibold">{formatLapTime(lap.lap_time_ms)}</td>
+                      <td class="px-4 py-2.5 text-right font-mono text-[var(--muted)]">{lap.s1_ms != null ? formatLapTime(lap.s1_ms) : "—"}</td>
+                      <td class="px-4 py-2.5 text-right font-mono text-[var(--muted)]">{lap.s2_ms != null ? formatLapTime(lap.s2_ms) : "—"}</td>
+                      <td class="px-4 py-2.5 text-right font-mono text-[var(--muted)]">{lap.s3_ms != null ? formatLapTime(lap.s3_ms) : "—"}</td>
                       <td class="px-4 py-2.5 text-right text-[var(--muted)]">
                         {new Date(lap.recorded_at).toLocaleDateString()}
                       </td>
