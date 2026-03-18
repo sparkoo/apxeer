@@ -1,8 +1,8 @@
-# RaceMate — Product Specification & Architecture
+# Apxeer — Product Specification & Architecture
 
 ## 1. Overview
 
-RaceMate is a simracing community platform. Drivers record their lap telemetry via a desktop app, upload it to a shared backend, and compare laps with other drivers on the web — overlaid on a track map with full telemetry graphs and delta analysis. A secondary feature provides rich race session stats parsed from LMU's XML result files.
+Apxeer is a simracing community platform. Drivers record their lap telemetry via a desktop app, upload it to a shared backend, and compare laps with other drivers on the web — overlaid on a track map with full telemetry graphs and delta analysis. A secondary feature provides rich race session stats parsed from LMU's XML result files.
 
 **Core value proposition**: Find exactly where you lose time compared to a faster driver — visually, on the track map, with telemetry to explain it.
 
@@ -105,7 +105,7 @@ Key data extracted per session:
 - Watch LMU results folder (configurable path) for new XML files
 - Parse on file creation
 - Upload to API (same auto/manual setting as laps)
-- Link race result entries to RaceMate user accounts by driver name matching (best-effort; user can confirm their in-game name in settings)
+- Link race result entries to Apxeer user accounts by driver name matching (best-effort; user can confirm their in-game name in settings)
 
 ### 4.3 Lap Comparison (Web)
 
@@ -283,7 +283,7 @@ GET  /api/compare?lap_a=:id&lap_b=:id   Fetch both laps' telemetry for compariso
 ## 7. Desktop App Structure
 
 ```
-racemate-desktop/
+apxeer-desktop/
 ├── src-tauri/src/
 │   ├── lib.rs                    Tauri setup, command registration
 │   ├── telemetry/
@@ -324,7 +324,7 @@ Every 50ms (20Hz):
 ## 8. Web Frontend Structure
 
 ```
-racemate-web/  (Next.js)
+apxeer-web/  (Next.js)
 ├── app/
 │   ├── page.tsx                  Landing / recent sessions
 │   ├── compare/

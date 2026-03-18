@@ -7,7 +7,7 @@ Implement reading the LMU (Le Mans Ultimate) shared memory interface in Rust, ma
 ## File Structure
 
 ```
-racemate-desktop/src-tauri/src/
+apxeer-desktop/src-tauri/src/
 ├── lib.rs                        (fix duplicate invoke_handler bug)
 ├── telemetry.rs                  (placeholder module — already referenced)
 └── lmu_telemetry/

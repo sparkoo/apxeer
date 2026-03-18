@@ -19,12 +19,12 @@ All commands are run from the repo root via `make`. The Makefile handles WSL/Win
 
 ### Desktop-specific commands
 ```bash
-# From racemate-desktop/ on Windows
+# From apxeer-desktop/ on Windows
 cargo tauri dev       # dev mode with hot-reload
 cargo tauri build     # production build
 
 # Run Rust tests (includes XML parser tests against real LMU files)
-cd racemate-desktop && cargo test
+cd apxeer-desktop && cargo test
 ```
 
 > The desktop app requires LMU XML result files at absolute Windows paths hardcoded in the tests — see `results.rs:342`.
@@ -32,9 +32,9 @@ cd racemate-desktop && cargo test
 ## Architecture Overview
 
 ```
-racemate-desktop/  — Tauri 2 app (Windows only)
-racemate-api/      — Go REST API (Fly.io)
-racemate-web/      — Next.js web frontend (Fly.io)
+apxeer-desktop/  — Tauri 2 app (Windows only)
+apxeer-api/      — Go REST API (Fly.io)
+apxeer-web/      — Next.js web frontend (Fly.io)
 lmu-telemetry/     — LMU C++ headers + sample XML result files
 plans/             — SPEC.md (full spec) + lmu-shared-memory-rust.md
 ```
@@ -43,7 +43,7 @@ plans/             — SPEC.md (full spec) + lmu-shared-memory-rust.md
 
 The frontend is plain HTML with [HTMX](https://htmx.org/) and the `tauri-htmx-extension` that maps `hx-post="command:<name>"` to Tauri `invoke()` calls. Tauri commands return HTML strings that HTMX swaps into the DOM.
 
-**Rust backend modules** (`racemate-desktop/src-tauri/src/`):
+**Rust backend modules** (`apxeer-desktop/src-tauri/src/`):
 
 | Module | Role |
 |---|---|
@@ -55,8 +55,8 @@ The frontend is plain HTML with [HTMX](https://htmx.org/) and the `tauri-htmx-ex
 | `settings.rs` | Persisted settings (API URL, auth token, auto-upload, LMU results path) |
 
 **Data flow:**
-1. `telemetry.rs` reads `LMU_Data` shared memory at 20Hz → detects lap boundaries → writes `{timestamp}-lap-{n}.json.gz` to `<AppData>/racemate/buffer/`
-2. `results.rs` watches the LMU results XML folder → parses → writes `{filename}.json.gz` to `<AppData>/racemate/results/`
+1. `telemetry.rs` reads `LMU_Data` shared memory at 20Hz → detects lap boundaries → writes `{timestamp}-lap-{n}.json.gz` to `<AppData>/apxeer/buffer/`
+2. `results.rs` watches the LMU results XML folder → parses → writes `{filename}.json.gz` to `<AppData>/apxeer/results/`
 3. `upload.rs` reads both buffer folders → `POST /api/laps` (body = gzip, metadata in `X-Lap-Metadata` header) and `POST /api/sessions` (body = JSON)
 4. On success, the local file is deleted
 
@@ -112,7 +112,7 @@ Supabase (Postgres). Telemetry samples are **not** stored as DB rows — they ar
 
 ## Settings Storage
 
-Settings are persisted to `<AppData>/racemate/config/settings.json`:
+Settings are persisted to `<AppData>/apxeer/config/settings.json`:
 ```json
 {
   "api_url": "http://localhost:8080",

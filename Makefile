@@ -1,4 +1,4 @@
-# RaceMate – local development
+# Apxeer – local development
 #
 # Works from both WSL and Windows (Git Bash / cmd).
 # WSL targets (db, api, web, seed) run directly when already in WSL,
@@ -17,9 +17,9 @@ else
   wsl = wsl -e bash -c "$(1)"
 endif
 
-API_DIR  := /mnt/c/Users/michal/dev/racemate/racemate-api
-WEB_DIR  := /mnt/c/Users/michal/dev/racemate/racemate-web
-DESK_DIR := racemate-desktop
+API_DIR  := /mnt/c/Users/michal/dev/apxeer/apxeer-api
+WEB_DIR  := /mnt/c/Users/michal/dev/apxeer/apxeer-web
+DESK_DIR := apxeer-desktop
 
 .PHONY: help db db-stop migrate api web desktop seed dev
 
@@ -40,16 +40,16 @@ help:
 # ── Database ──────────────────────────────────────────────────────────────────
 
 db:
-	$(call wsl, podman start racemate-postgres 2>/dev/null || podman run -d \
-		--name racemate-postgres \
-		-e POSTGRES_USER=racemate \
-		-e POSTGRES_PASSWORD=racemate \
-		-e POSTGRES_DB=racemate \
+	$(call wsl, podman start apxeer-postgres 2>/dev/null || podman run -d \
+		--name apxeer-postgres \
+		-e POSTGRES_USER=apxeer \
+		-e POSTGRES_PASSWORD=apxeer \
+		-e POSTGRES_DB=apxeer \
 		-p 5432:5432 \
 		postgres:17-alpine)
 
 db-stop:
-	$(call wsl, podman stop racemate-postgres)
+	$(call wsl, podman stop apxeer-postgres)
 
 migrate:
 	$(call wsl, cd $(API_DIR) && psql $$DATABASE_URL -f migrations/001_local.sql)
