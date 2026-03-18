@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: racemate-api
+        working-directory: apxeer-api
 
     steps:
       - uses: actions/checkout@v4
@@ -20,8 +20,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: racemate-api/go.mod
-          cache-dependency-path: racemate-api/go.sum
+          go-version-file: apxeer-api/go.mod
+          cache-dependency-path: apxeer-api/go.sum
 
       - name: Download modules
         run: go mod download
@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: racemate-web
+        working-directory: apxeer-web
 
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +48,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: racemate-web/package-lock.json
+          cache-dependency-path: apxeer-web/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -62,7 +62,7 @@ jobs:
     runs-on: windows-latest
     defaults:
       run:
-        working-directory: racemate-desktop/src-tauri
+        working-directory: apxeer-desktop/src-tauri
 
     steps:
       - uses: actions/checkout@v4
@@ -78,8 +78,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            racemate-desktop/src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('racemate-desktop/src-tauri/Cargo.lock') }}
+            apxeer-desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('apxeer-desktop/src-tauri/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
