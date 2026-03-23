@@ -1,4 +1,4 @@
-import type { CompareData, LapMetadata, Session } from "./types";
+import type { CompareData, CommunityStats, LapMetadata, Session, TrackRecord, UserSession } from "./types";
 import { supabase } from "./supabase";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
@@ -31,6 +31,14 @@ export const api = {
   compare: (lapAId: string, lapBId: string): Promise<CompareData> =>
     get(`/api/compare?lap_a=${lapAId}&lap_b=${lapBId}`),
 
+  stats: {
+    get: (): Promise<CommunityStats> => get("/api/stats"),
+  },
+
+  tracks: {
+    records: (): Promise<TrackRecord[]> => get("/api/tracks/records"),
+  },
+
   sessions: {
     list: (): Promise<Session[]> => get("/api/sessions"),
     get: (id: string): Promise<Session> => get(`/api/sessions/${id}`),
@@ -39,6 +47,6 @@ export const api = {
   users: {
     get: (id: string) => get(`/api/users/${id}`),
     laps: (id: string): Promise<LapMetadata[]> => get(`/api/users/${id}/laps`),
-    sessions: (id: string): Promise<Session[]> => get(`/api/users/${id}/sessions`),
+    sessions: (id: string): Promise<UserSession[]> => get(`/api/users/${id}/sessions`),
   },
 };

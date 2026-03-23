@@ -15,7 +15,7 @@ export function SessionDetail() {
 
   if (error) {
     return (
-      <div class="max-w-4xl mx-auto mt-10">
+      <div class="mt-10">
         <p class="text-[var(--muted)]">Session not found.</p>
         <Link href="/sessions" class="text-sm text-[var(--accent)] hover:underline mt-2 inline-block">← Back to sessions</Link>
       </div>
@@ -23,11 +23,11 @@ export function SessionDetail() {
   }
 
   if (!session) {
-    return <div class="max-w-4xl mx-auto mt-10 text-[var(--muted)]">Loading…</div>;
+    return <div class="mt-10 text-[var(--muted)]">Loading…</div>;
   }
 
   return (
-    <div class="max-w-4xl mx-auto flex flex-col gap-8 mt-10">
+    <div class="flex flex-col gap-8 mt-10">
       <div>
         <Link href="/sessions" class="text-xs text-[var(--muted)] hover:text-[var(--text)] transition-colors">← Sessions</Link>
         <h1 class="text-2xl font-bold mt-2">{session.event_name || "Session"}</h1>

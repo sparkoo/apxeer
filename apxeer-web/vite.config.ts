@@ -7,4 +7,10 @@ export default defineConfig({
   resolve: {
     alias: { "@": "/src" },
   },
+  server: {
+    watch: {
+      usePolling: true,
+      interval: 1000,
+    },
+  },
 });

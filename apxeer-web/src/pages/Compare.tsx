@@ -89,7 +89,7 @@ export function Compare() {
   };
 
   return (
-    <div class="max-w-7xl mx-auto">
+    <div>
       <h1 class="text-xl font-bold mb-6">Lap Comparison</h1>
 
       <div class="flex gap-3 mb-6 items-end flex-wrap">

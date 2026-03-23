@@ -13,6 +13,11 @@ export function Nav() {
         <Link href="/laps" class="hover:text-[var(--text)] transition-colors">
           Laps
         </Link>
+        {user && (
+          <Link href="/my-laps" class="hover:text-[var(--text)] transition-colors">
+            My Laps
+          </Link>
+        )}
         <Link href="/sessions" class="hover:text-[var(--text)] transition-colors">
           Sessions
         </Link>

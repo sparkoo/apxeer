@@ -8,6 +8,7 @@ import { Compare } from "@/pages/Compare";
 import { Sessions } from "@/pages/Sessions";
 import { SessionDetail } from "@/pages/SessionDetail";
 import { Laps } from "@/pages/Laps";
+import { MyLaps } from "@/pages/MyLaps";
 import { Login } from "@/pages/Login";
 
 export function App() {
@@ -19,6 +20,7 @@ export function App() {
           <Router>
             <Route path="/" component={Home} />
             <Route path="/laps" component={Laps} />
+            <Route path="/my-laps" component={MyLaps} />
             <Route path="/compare" component={Compare} />
             <Route path="/sessions" component={Sessions} />
             <Route path="/sessions/:id" component={SessionDetail} />

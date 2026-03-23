@@ -80,6 +80,37 @@ export interface Session {
   results?: SessionResult[];
 }
 
+export interface CommunityStats {
+  total_laps: number;
+  total_drivers: number;
+  total_km: number;
+}
+
+export interface TrackRecord {
+  lap_id: string;
+  track_id: string;
+  track_name: string;
+  car_name: string;
+  car_class: string;
+  lap_time_ms: number;
+  username: string | null;
+  recorded_at: string;
+}
+
+export interface UserResult {
+  finish_pos: number;
+  class_pos: number;
+  best_lap_ms: number | null;
+  laps_completed: number;
+  finish_status: string;
+  car_name: string;
+  car_class: string;
+}
+
+export interface UserSession extends Session {
+  my_result: UserResult;
+}
+
 // Lap comparison data returned by GET /api/compare
 export interface CompareData {
   lap_a: LapMetadata;

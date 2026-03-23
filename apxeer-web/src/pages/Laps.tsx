@@ -98,7 +98,7 @@ export function Laps() {
   if (laps.length === 0) return <p class="text-[var(--muted)]">No laps uploaded yet.</p>;
 
   return (
-    <div class="max-w-4xl mx-auto flex flex-col gap-6">
+    <div class="flex flex-col gap-6">
       <div class="flex flex-col gap-3">
         <h1 class="text-xl font-bold">Laps</h1>
 
