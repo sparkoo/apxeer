@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Documentation
+
+Architecture, design decisions, and notable implementation details are kept in `docs/`. Update the relevant file(s) in `docs/` whenever you make a change that affects architecture, data flow, API contracts, DB schema, or key design decisions. Create new files as needed — keep them focused by topic.
+
+## Git Workflow
+
+Commit often — after each small, self-contained, working change. Each commit should leave the codebase in a working state. Prefer many focused commits over one large commit at the end of a task.
+
 ## Development Commands
 
 All commands are run from the repo root via `make`. The Makefile handles WSL/Windows detection automatically.
