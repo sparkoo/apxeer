@@ -18,6 +18,41 @@ use sha2::{Digest, Sha256};
 use settings::Settings;
 use telemetry::{RecorderState, RecorderStatus};
 
+// ── LMU path detection ────────────────────────────────────────────────────────
+
+/// Tries to find the LMU results folder automatically.
+/// Checks the Steam registry key first, then falls back to the Documents default.
+fn detect_lmu_results_dir() -> PathBuf {
+    const LMU_SUBPATH: &[&str] = &["UserData", "Log", "Results"];
+
+    // 1. Steam registry: HKCU\SOFTWARE\Valve\Steam → SteamPath
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::enums::HKEY_CURRENT_USER;
+        use winreg::RegKey;
+        if let Ok(steam_key) = RegKey::predef(HKEY_CURRENT_USER).open_subkey(r"SOFTWARE\Valve\Steam") {
+            if let Ok(steam_path) = steam_key.get_value::<String, _>("SteamPath") {
+                let candidate = LMU_SUBPATH.iter().fold(
+                    PathBuf::from(steam_path)
+                        .join("steamapps").join("common").join("Le Mans Ultimate"),
+                    |p, seg| p.join(seg),
+                );
+                if candidate.exists() {
+                    return candidate;
+                }
+            }
+        }
+    }
+
+    // 2. Documents fallback
+    dirs::document_dir()
+        .map(|d| LMU_SUBPATH.iter().fold(
+            d.join("Le Mans Ultimate"),
+            |p, seg| p.join(seg),
+        ))
+        .unwrap_or_default()
+}
+
 // ── Auth constants ─────────────────────────────────────────────────────────────
 
 const SUPABASE_URL: &str = "https://xviegnvxvozhmsjcsadm.supabase.co";
@@ -165,8 +200,11 @@ fn get_auth_status(settings: tauri::State<Arc<Mutex<Settings>>>) -> serde_json::
 #[tauri::command]
 fn get_recorder_status(
     state: tauri::State<Arc<Mutex<RecorderState>>>,
+    results_buffer: tauri::State<ResultsBuffer>,
 ) -> String {
     let s = state.lock().unwrap();
+
+    let pending_sessions = count_pending_files(&results_buffer.0);
 
     let (status_class, status_label) = match s.status {
         RecorderStatus::LmuNotRunning => ("status--offline", "LMU not running"),
@@ -180,14 +218,21 @@ fn get_recorder_status(
         String::new()
     };
 
-    let pending_html = if s.pending_laps > 0 {
+    let total_pending = s.pending_laps + pending_sessions;
+    let pending_html = if total_pending > 0 {
+        let mut parts = Vec::new();
+        if s.pending_laps > 0 {
+            parts.push(format!("{} lap{}", s.pending_laps, if s.pending_laps == 1 { "" } else { "s" }));
+        }
+        if pending_sessions > 0 {
+            parts.push(format!("{} session{}", pending_sessions, if pending_sessions == 1 { "" } else { "s" }));
+        }
         format!(
             r##"<div class="pending">
-                <span>{} lap{} pending upload</span>
+                <span>{} pending upload</span>
                 <button hx-post="command:upload_now" hx-target="#status" hx-swap="innerHTML">Upload now</button>
             </div>"##,
-            s.pending_laps,
-            if s.pending_laps == 1 { "" } else { "s" }
+            parts.join(", ")
         )
     } else {
         String::new()
@@ -201,6 +246,19 @@ fn get_recorder_status(
         {lap_html}
         {pending_html}"#
     )
+}
+
+fn count_pending_files(dir: &std::path::Path) -> usize {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.path().to_str().map(|s| s.ends_with(".json.gz")).unwrap_or(false)
+                })
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 #[tauri::command]
@@ -284,11 +342,7 @@ pub fn run() {
             // Start XML results watcher.
             let lmu_results_dir = {
                 let s = settings.lock().unwrap();
-                s.lmu_results_path().unwrap_or_else(|| {
-                    dirs::document_dir()
-                        .map(|d| d.join("Le Mans Ultimate").join("UserData").join("Log").join("Results"))
-                        .unwrap_or_default()
-                })
+                s.lmu_results_path().unwrap_or_else(detect_lmu_results_dir)
             };
             if lmu_results_dir.exists() {
                 eprintln!("[setup] Watching LMU results: {:?}", lmu_results_dir);

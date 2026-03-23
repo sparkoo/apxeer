@@ -18,6 +18,8 @@ pub struct ParsedLap {
     pub s3_ms: Option<u32>,
     pub top_speed_kph: f32,
     pub fuel_fraction: f32,
+    pub fuel_used: f32,
+    pub elapsed_time_s: f64,
     pub tyre_wear_fl: f32,
     pub tyre_wear_fr: f32,
     pub tyre_wear_rl: f32,
@@ -35,31 +37,51 @@ pub struct ParsedDriver {
     pub car_number: String,
     pub team_name: String,
     pub is_player: bool,
+    pub is_connected: bool,
     pub grid_pos: Option<i32>,
+    pub class_grid_pos: Option<i32>,
     pub finish_pos: i32,
     pub class_pos: i32,
     pub laps_completed: i32,
     pub best_lap_ms: Option<u32>,
+    pub finish_time_s: Option<f64>,
     pub pitstops: i32,
     pub finish_status: String,
     pub laps: Vec<ParsedLap>,
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct ParsedStreamEvent {
+    pub event_type: String,    // "incident" | "penalty" | "track_limits"
+    pub elapsed_time: f64,
+    pub driver_name: String,
+    pub detail: serde_json::Value,
+    pub description: String,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct ParsedSessionBlock {
     /// Normalised type: "Practice", "Qualifying", or "Race"
     pub session_type: String,
+    pub session_datetime: i64,
     pub duration_minutes: i32,
     pub drivers: Vec<ParsedDriver>,
+    pub stream_events: Vec<ParsedStreamEvent>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct ParsedSession {
     pub track_venue: String,
+    pub track_course: String,
     pub track_event: String,
     pub track_length_m: f64,
     pub game_version: String,
-    /// Unix timestamp from the XML <DateTime> field
+    pub setting: String,
+    pub server_name: String,
+    pub fuel_mult: f64,
+    pub tire_mult: f64,
+    pub damage_mult: i32,
+    /// Unix timestamp from the XML <DateTime> field (root level — identifies the event)
     pub datetime: i64,
     pub source_filename: String,
     pub session_blocks: Vec<ParsedSessionBlock>,
@@ -112,11 +134,19 @@ fn process_xml(path: &Path, buffer_dir: &Path) {
     eprintln!("[results] Processing {:?}", path.file_name().unwrap_or_default());
     match parse_xml(path) {
         Ok(session) => {
+            if session.setting != "Multiplayer" {
+                eprintln!("[results] Skipped {} — not a multiplayer session ({})", session.source_filename, session.setting);
+                return;
+            }
+            if session.session_blocks.is_empty() {
+                eprintln!("[results] Skipped {} — no race session blocks", session.source_filename);
+                return;
+            }
             if let Err(e) = save_session(&session, buffer_dir) {
                 eprintln!("[results] Failed to save {:?}: {}", path, e);
             } else {
                 eprintln!(
-                    "[results] Saved {} — {} session block(s), {} total drivers",
+                    "[results] Saved {} — {} race block(s), {} total drivers",
                     session.source_filename,
                     session.session_blocks.len(),
                     session.session_blocks.iter().map(|b| b.drivers.len()).sum::<usize>()
@@ -144,11 +174,23 @@ fn parse_xml(path: &Path) -> Result<ParsedSession, Box<dyn std::error::Error>> {
         .ok_or("Missing <RaceResults>")?;
 
     let track_venue = child_text(&root, "TrackVenue").unwrap_or_default();
+    let track_course = child_text(&root, "TrackCourse").unwrap_or_default();
     let track_event = child_text(&root, "TrackEvent").unwrap_or_default();
     let track_length_m = child_text(&root, "TrackLength")
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(0.0);
     let game_version = child_text(&root, "GameVersion").unwrap_or_default();
+    let setting = child_text(&root, "Setting").unwrap_or_default();
+    let server_name = child_text(&root, "ServerName").unwrap_or_default();
+    let fuel_mult = child_text(&root, "FuelMult")
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(1.0);
+    let tire_mult = child_text(&root, "TireMult")
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(1.0);
+    let damage_mult = child_text(&root, "DamageMult")
+        .and_then(|s| s.parse::<i32>().ok())
+        .unwrap_or(100);
     let datetime = child_text(&root, "DateTime")
         .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(0);
@@ -167,6 +209,15 @@ fn parse_xml(path: &Path) -> Result<ParsedSession, Box<dyn std::error::Error>> {
     for tag in &session_tag_names {
         if let Some(block_node) = root.children().find(|n| n.has_tag_name(*tag)) {
             let session_type = normalise_session_type(tag);
+
+            // Only upload Race sessions — skip Practice and Qualifying.
+            if session_type != "Race" {
+                continue;
+            }
+
+            let session_datetime = child_text(&block_node, "DateTime")
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(datetime);
             let duration_minutes = child_text(&block_node, "Minutes")
                 .and_then(|s| s.parse::<i32>().ok())
                 .unwrap_or(0);
@@ -177,19 +228,33 @@ fn parse_xml(path: &Path) -> Result<ParsedSession, Box<dyn std::error::Error>> {
                 .map(parse_driver)
                 .collect();
 
+            let stream_events = block_node
+                .children()
+                .find(|n| n.has_tag_name("Stream"))
+                .map(|s| parse_stream_events(&s))
+                .unwrap_or_default();
+
             session_blocks.push(ParsedSessionBlock {
                 session_type,
+                session_datetime,
                 duration_minutes,
                 drivers,
+                stream_events,
             });
         }
     }
 
     Ok(ParsedSession {
         track_venue,
+        track_course,
         track_event,
         track_length_m,
         game_version,
+        setting,
+        server_name,
+        fuel_mult,
+        tire_mult,
+        damage_mult,
         datetime,
         source_filename,
         session_blocks,
@@ -203,8 +268,10 @@ fn parse_driver(node: roxmltree::Node) -> ParsedDriver {
     let car_number = child_text(&node, "CarNumber").unwrap_or_default();
     let team_name = child_text(&node, "TeamName").unwrap_or_default();
     let is_player = child_text(&node, "isPlayer").map(|s| s == "1").unwrap_or(false);
+    let is_connected = child_text(&node, "Connected").map(|s| s == "1").unwrap_or(false);
 
     let grid_pos = child_text(&node, "GridPos").and_then(|s| s.parse::<i32>().ok());
+    let class_grid_pos = child_text(&node, "ClassGridPos").and_then(|s| s.parse::<i32>().ok());
     let finish_pos = child_text(&node, "Position")
         .and_then(|s| s.parse::<i32>().ok())
         .unwrap_or(0);
@@ -221,6 +288,9 @@ fn parse_driver(node: roxmltree::Node) -> ParsedDriver {
     let pitstops = child_text(&node, "Pitstops")
         .and_then(|s| s.parse::<i32>().ok())
         .unwrap_or(0);
+    let finish_time_s = child_text(&node, "FinishTime")
+        .and_then(|s| s.parse::<f64>().ok())
+        .filter(|&t| t > 0.0);
     let finish_status = child_text(&node, "FinishStatus").unwrap_or_default();
 
     let laps = node
@@ -236,11 +306,14 @@ fn parse_driver(node: roxmltree::Node) -> ParsedDriver {
         car_number,
         team_name,
         is_player,
+        is_connected,
         grid_pos,
+        class_grid_pos,
         finish_pos,
         class_pos,
         laps_completed,
         best_lap_ms,
+        finish_time_s,
         pitstops,
         finish_status,
         laps,
@@ -268,8 +341,10 @@ fn parse_lap(node: roxmltree::Node) -> ParsedLap {
     let s2_ms = attr_sec_ms("s2");
     let s3_ms = attr_sec_ms("s3");
 
+    let elapsed_time_s = attr("et").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
     let top_speed_kph = attr_f32("topspeed");
     let fuel_fraction = attr_f32("fuel");
+    let fuel_used = attr_f32("fuelUsed");
     let tyre_wear_fl = attr_f32("twfl");
     let tyre_wear_fr = attr_f32("twfr");
     let tyre_wear_rl = attr_f32("twrl");
@@ -289,6 +364,8 @@ fn parse_lap(node: roxmltree::Node) -> ParsedLap {
         s3_ms,
         top_speed_kph,
         fuel_fraction,
+        fuel_used,
+        elapsed_time_s,
         tyre_wear_fl,
         tyre_wear_fr,
         tyre_wear_rl,
@@ -297,6 +374,149 @@ fn parse_lap(node: roxmltree::Node) -> ParsedLap {
         is_pit_lap,
         race_position,
     }
+}
+
+// ── Stream event parsing ─────────────────────────────────────────────────────
+
+fn parse_stream_events(stream_node: &roxmltree::Node) -> Vec<ParsedStreamEvent> {
+    let mut events = Vec::new();
+
+    for node in stream_node.children() {
+        if node.has_tag_name("Incident") {
+            if let Some(ev) = parse_incident(&node) {
+                events.push(ev);
+            }
+        } else if node.has_tag_name("Penalty") {
+            if let Some(ev) = parse_penalty(&node) {
+                events.push(ev);
+            }
+        } else if node.has_tag_name("TrackLimits") {
+            if let Some(ev) = parse_track_limits(&node) {
+                events.push(ev);
+            }
+        }
+    }
+
+    events
+}
+
+fn parse_incident(node: &roxmltree::Node) -> Option<ParsedStreamEvent> {
+    let et = node.attribute("et").and_then(|v| v.parse::<f64>().ok())?;
+    let text = node.text().unwrap_or_default().to_string();
+
+    // Format: "Name(ID) reported contact (VALUE) with another vehicle OtherName(ID)"
+    //     or: "Name(ID) reported contact (VALUE) with Immovable"
+    let reported = " reported contact (";
+    let reported_pos = text.find(reported)?;
+
+    // Driver name: everything before the last '(' before " reported contact"
+    let driver_part = &text[..reported_pos];
+    let driver_name = driver_part.rsplit_once('(')
+        .map(|(name, _)| name.to_string())
+        .unwrap_or_else(|| driver_part.to_string());
+
+    // Contact value: between "reported contact (" and ")"
+    let value_start = reported_pos + reported.len();
+    let value_end = text[value_start..].find(')')? + value_start;
+    let contact_value: f64 = text[value_start..value_end].parse().unwrap_or(0.0);
+
+    // After ") with " — either "another vehicle OtherName(ID)" or "Immovable"
+    let with_marker = ") with ";
+    let with_pos = text[value_start..].find(with_marker)? + value_start + with_marker.len();
+    let remainder = &text[with_pos..];
+
+    let detail = if remainder.starts_with("another vehicle ") {
+        let other_part = &remainder["another vehicle ".len()..];
+        let other_name = other_part.rsplit_once('(')
+            .map(|(name, _)| name.to_string())
+            .unwrap_or_else(|| other_part.to_string());
+        serde_json::json!({
+            "other_driver": other_name,
+            "contact_value": contact_value
+        })
+    } else {
+        serde_json::json!({
+            "object": remainder.to_string(),
+            "contact_value": contact_value
+        })
+    };
+
+    Some(ParsedStreamEvent {
+        event_type: "incident".to_string(),
+        elapsed_time: et,
+        driver_name,
+        detail,
+        description: text,
+    })
+}
+
+fn parse_penalty(node: &roxmltree::Node) -> Option<ParsedStreamEvent> {
+    let et = node.attribute("et").and_then(|v| v.parse::<f64>().ok())?;
+    let text = node.text().unwrap_or_default().to_string();
+
+    // Newer format has attributes: Driver, Penalty, Reason
+    let driver_attr = node.attribute("Driver").map(|s| s.to_string());
+    let penalty_type = node.attribute("Penalty").map(|s| s.to_string());
+    let reason = node.attribute("Reason").map(|s| s.to_string());
+
+    let (driver, detail) = if let (Some(drv), Some(pt)) = (driver_attr, penalty_type) {
+        (drv, serde_json::json!({
+            "penalty_type": pt,
+            "reason": reason.unwrap_or_default()
+        }))
+    } else {
+        // Older format: "Name received Type penalty, ... for Reason. ..."
+        let received = " received ";
+        if let Some(pos) = text.find(received) {
+            let drv = text[..pos].to_string();
+            let rest = &text[pos + received.len()..];
+            let pt = rest.split(" penalty").next().unwrap_or("Unknown").to_string();
+            let reason = rest.find(" for ")
+                .map(|p| rest[p + 5..].split('.').next().unwrap_or("").trim_matches('"').to_string())
+                .unwrap_or_default();
+            (drv, serde_json::json!({
+                "penalty_type": pt,
+                "reason": reason
+            }))
+        } else {
+            let drv = text.split(' ').next().unwrap_or("Unknown").to_string();
+            (drv, serde_json::json!({}))
+        }
+    };
+
+    Some(ParsedStreamEvent {
+        event_type: "penalty".to_string(),
+        elapsed_time: et,
+        driver_name: driver,
+        detail,
+        description: text,
+    })
+}
+
+fn parse_track_limits(node: &roxmltree::Node) -> Option<ParsedStreamEvent> {
+    let et = node.attribute("et").and_then(|v| v.parse::<f64>().ok())?;
+    let driver_name = node.attribute("Driver").unwrap_or_default().to_string();
+    let lap = node.attribute("Lap").and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
+    let warning_points = node.attribute("WarningPoints")
+        .and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+    let current_points = node.attribute("CurrentPoints")
+        .and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+    let resolution = node.text().unwrap_or_default().trim().to_string();
+
+    let detail = serde_json::json!({
+        "lap": lap,
+        "warning_points": warning_points,
+        "current_points": current_points,
+        "resolution": &resolution
+    });
+
+    Some(ParsedStreamEvent {
+        event_type: "track_limits".to_string(),
+        elapsed_time: et,
+        driver_name,
+        detail,
+        description: resolution,
+    })
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -345,23 +565,38 @@ mod tests {
         );
         let session = parse_xml(path).expect("parse failed");
         assert_eq!(session.track_venue, "Autodromo Enzo e Dino Ferrari");
+        assert!(!session.track_course.is_empty());
+        assert!(!session.setting.is_empty());
+        assert!(session.fuel_mult > 0.0);
         assert!(!session.session_blocks.is_empty());
+
         let race = session.session_blocks.iter().find(|b| b.session_type == "Race").expect("no race block");
+        assert!(race.session_datetime > 0);
         assert!(!race.drivers.is_empty());
+
         let driver = &race.drivers[0];
         assert!(!driver.name.is_empty());
+        assert!(driver.is_connected);
         assert!(!driver.laps.is_empty());
-        println!("Track: {}, {} drivers, {} laps for first driver",
-            session.track_venue, race.drivers.len(), driver.laps.len());
+
+        // Verify lap enrichment
+        let lap = &driver.laps[0];
+        assert!(lap.elapsed_time_s > 0.0, "elapsed_time_s should be populated");
+
+        // Verify stream events parsed
+        assert!(!race.stream_events.is_empty(), "stream events should be parsed");
+        println!("Track: {}, {} drivers, {} laps for first driver, {} stream events",
+            session.track_venue, race.drivers.len(), driver.laps.len(), race.stream_events.len());
     }
 
     #[test]
-    fn parses_practice_xml() {
+    fn skips_practice_xml() {
         let path = std::path::Path::new(
             r"C:\Users\michal\dev\apxeer\lmu-telemetry\results\2026_03_04_05_51_30-39P1.xml",
         );
         let session = parse_xml(path).expect("parse failed");
-        assert!(!session.session_blocks.is_empty());
-        println!("Blocks: {:?}", session.session_blocks.iter().map(|b| &b.session_type).collect::<Vec<_>>());
+        // Practice-only files produce no blocks — nothing to upload.
+        assert!(session.session_blocks.is_empty(), "practice should be filtered out");
+        assert!(!session.track_course.is_empty());
     }
 }
