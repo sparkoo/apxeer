@@ -52,7 +52,12 @@ func main() {
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/laps", api.ListLaps(pool))
 		r.Get("/sessions", api.ListSessions(pool))
+		r.Get("/sessions/{id}", api.GetSession(pool))
 		r.Get("/compare", api.Compare(pool, store))
+		r.Get("/stats", api.GetStats(pool))
+		r.Get("/tracks/records", api.ListTrackRecords(pool))
+		r.Get("/users/{userID}/laps", api.ListUserLaps(pool))
+		r.Get("/users/{userID}/sessions", api.ListUserSessions(pool))
 
 		r.With(api.RequireAuth).Post("/laps", api.UploadLap(pool, store))
 		r.With(api.RequireAuth).Post("/sessions", api.UploadSession(pool))

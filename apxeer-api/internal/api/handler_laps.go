@@ -8,9 +8,52 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/apxeer/api/internal/storage"
 )
+
+// LapRow is the JSON shape returned by lap list endpoints.
+type LapRow struct {
+	ID           string  `json:"id"`
+	UserID       string  `json:"user_id"`
+	TrackID      string  `json:"track_id"`
+	CarID        string  `json:"car_id"`
+	LapNumber    int     `json:"lap_number"`
+	LapTimeMs    uint32  `json:"lap_time_ms"`
+	S1Ms         *uint32 `json:"s1_ms"`
+	S2Ms         *uint32 `json:"s2_ms"`
+	S3Ms         *uint32 `json:"s3_ms"`
+	IsValid      bool    `json:"is_valid"`
+	SampleRateHz uint32  `json:"sample_rate_hz"`
+	RecordedAt   string  `json:"recorded_at"`
+	TelemetryURL *string `json:"telemetry_url"`
+	TrackName    string  `json:"track_name"`
+	CarName      string  `json:"car_name"`
+	CarClass     string  `json:"car_class"`
+	Username     *string `json:"username"`
+}
+
+func scanLapRows(rows interface {
+	Next() bool
+	Scan(dest ...any) error
+}, dest *[]LapRow) error {
+	for rows.Next() {
+		var l LapRow
+		var recordedAt time.Time
+		if err := rows.Scan(
+			&l.ID, &l.UserID, &l.TrackID, &l.CarID,
+			&l.LapNumber, &l.LapTimeMs, &l.S1Ms, &l.S2Ms, &l.S3Ms,
+			&l.IsValid, &l.SampleRateHz, &recordedAt, &l.TelemetryURL,
+			&l.TrackName, &l.CarName, &l.CarClass, &l.Username,
+		); err != nil {
+			return err
+		}
+		l.RecordedAt = recordedAt.Format(time.RFC3339)
+		*dest = append(*dest, l)
+	}
+	return nil
+}
 
 type LapMetadata struct {
 	LapNumber    int     `json:"lap_number"`
@@ -38,6 +81,7 @@ type UploadLapRequest struct {
 func ListLaps(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		filterUserID := r.URL.Query().Get("user_id")
+		filterTrackID := r.URL.Query().Get("track_id")
 
 		query := `
 			SELECT l.id, l.user_id, l.track_id, l.car_id,
@@ -51,9 +95,23 @@ func ListLaps(db *pgxpool.Pool) http.HandlerFunc {
 			LEFT JOIN users u ON u.id = l.user_id`
 
 		var args []any
+		var conditions []string
+		argIdx := 1
 		if filterUserID != "" {
-			query += ` WHERE l.user_id = $1`
+			conditions = append(conditions, fmt.Sprintf("l.user_id = $%d", argIdx))
 			args = append(args, filterUserID)
+			argIdx++
+		}
+		if filterTrackID != "" {
+			conditions = append(conditions, fmt.Sprintf("l.track_id = $%d", argIdx))
+			args = append(args, filterTrackID)
+			argIdx++
+		}
+		if len(conditions) > 0 {
+			query += " WHERE " + conditions[0]
+			for _, c := range conditions[1:] {
+				query += " AND " + c
+			}
 		}
 		query += ` ORDER BY l.recorded_at DESC LIMIT 100`
 
@@ -64,41 +122,10 @@ func ListLaps(db *pgxpool.Pool) http.HandlerFunc {
 		}
 		defer rows.Close()
 
-		type LapRow struct {
-			ID           string  `json:"id"`
-			UserID       string  `json:"user_id"`
-			TrackID      string  `json:"track_id"`
-			CarID        string  `json:"car_id"`
-			LapNumber    int     `json:"lap_number"`
-			LapTimeMs    uint32  `json:"lap_time_ms"`
-			S1Ms         *uint32 `json:"s1_ms"`
-			S2Ms         *uint32 `json:"s2_ms"`
-			S3Ms         *uint32 `json:"s3_ms"`
-			IsValid      bool    `json:"is_valid"`
-			SampleRateHz uint32  `json:"sample_rate_hz"`
-			RecordedAt   string  `json:"recorded_at"`
-			TelemetryURL *string `json:"telemetry_url"`
-			TrackName    string  `json:"track_name"`
-			CarName      string  `json:"car_name"`
-			CarClass     string  `json:"car_class"`
-			Username     *string `json:"username"`
-		}
-
 		laps := []LapRow{}
-		for rows.Next() {
-			var l LapRow
-			var recordedAt time.Time
-			if err := rows.Scan(
-				&l.ID, &l.UserID, &l.TrackID, &l.CarID,
-				&l.LapNumber, &l.LapTimeMs, &l.S1Ms, &l.S2Ms, &l.S3Ms,
-				&l.IsValid, &l.SampleRateHz, &recordedAt, &l.TelemetryURL,
-				&l.TrackName, &l.CarName, &l.CarClass, &l.Username,
-			); err != nil {
-				http.Error(w, "db scan error", http.StatusInternalServerError)
-				return
-			}
-			l.RecordedAt = recordedAt.Format(time.RFC3339)
-			laps = append(laps, l)
+		if err := scanLapRows(rows, &laps); err != nil {
+			http.Error(w, "db scan error", http.StatusInternalServerError)
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -209,5 +236,56 @@ func UploadLap(db *pgxpool.Pool, store *storage.Client) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(map[string]string{"lap_id": lapID})
+	}
+}
+
+// ListUserLaps handles GET /api/users/{userID}/laps (public).
+// Returns all laps for a specific user, with optional track_id and car_id filters.
+func ListUserLaps(db *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID := chi.URLParam(r, "userID")
+		filterTrackID := r.URL.Query().Get("track_id")
+		filterCarID := r.URL.Query().Get("car_id")
+
+		query := `
+			SELECT l.id, l.user_id, l.track_id, l.car_id,
+			       l.lap_number, l.lap_time_ms, l.s1_ms, l.s2_ms, l.s3_ms,
+			       l.is_valid, l.sample_rate_hz, l.recorded_at, l.telemetry_url,
+			       t.name AS track_name, c.name AS car_name, c.class AS car_class,
+			       u.username
+			FROM laps l
+			JOIN tracks t ON t.id = l.track_id
+			JOIN cars c ON c.id = l.car_id
+			LEFT JOIN users u ON u.id = l.user_id
+			WHERE l.user_id = $1`
+
+		args := []any{userID}
+		argIdx := 2
+		if filterTrackID != "" {
+			query += fmt.Sprintf(" AND l.track_id = $%d", argIdx)
+			args = append(args, filterTrackID)
+			argIdx++
+		}
+		if filterCarID != "" {
+			query += fmt.Sprintf(" AND l.car_id = $%d", argIdx)
+			args = append(args, filterCarID)
+		}
+		query += ` ORDER BY l.recorded_at DESC LIMIT 500`
+
+		rows, err := db.Query(r.Context(), query, args...)
+		if err != nil {
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		laps := []LapRow{}
+		if err := scanLapRows(rows, &laps); err != nil {
+			http.Error(w, "db scan error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(laps)
 	}
 }
