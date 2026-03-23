@@ -12,14 +12,14 @@ Commit often — after each small, self-contained, working change. Each commit s
 
 ## Development Commands
 
-All commands are run from the repo root via `make`. The Makefile handles WSL/Windows detection automatically.
+All commands are run from the repo root via `make`.
 
 | Command | What it does |
 |---|---|
-| `make desktop` | Start Tauri desktop app — **Windows terminal only** (Git Bash / cmd) |
-| `make api` | Start Go API on port 8080 (runs in WSL) |
-| `make web` | Start Next.js dev server on port 3000 (runs in WSL) |
-| `make db` | Start Postgres 17 container via Podman (WSL) |
+| `make desktop` | Start Tauri desktop app (Windows only) |
+| `make api` | Start Go API on port 8080 |
+| `make web` | Start Next.js dev server on port 3000 |
+| `make db` | Start Postgres 17 container via Podman |
 | `make db-stop` | Stop Postgres container |
 | `make migrate` | Run `migrations/001_local.sql` against local DB |
 | `make seed` | Insert two test laps with fake telemetry |
@@ -27,15 +27,13 @@ All commands are run from the repo root via `make`. The Makefile handles WSL/Win
 
 ### Desktop-specific commands
 ```bash
-# From apxeer-desktop/ on Windows
+# From apxeer-desktop/
 cargo tauri dev       # dev mode with hot-reload
 cargo tauri build     # production build
 
-# Run Rust tests (includes XML parser tests against real LMU files)
+# Run Rust tests
 cd apxeer-desktop && cargo test
 ```
-
-> The desktop app requires LMU XML result files at absolute Windows paths hardcoded in the tests — see `results.rs:342`.
 
 ## Architecture Overview
 
