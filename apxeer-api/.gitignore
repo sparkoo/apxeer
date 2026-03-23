@@ -1,2 +1,12 @@
+# Env files
 .env
-seed
+.env.*
+!.env.example
+
+# Compiled binaries
+/seed
+/apxeer-api
+*.exe
+
+# Test cache
+/tmp/
