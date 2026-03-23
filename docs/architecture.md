@@ -2,14 +2,14 @@
 
 ## System Overview
 
-RaceMate is a simracing telemetry platform — "Strava for sim racing". The desktop app records lap telemetry from the simulator and uploads it to the server; the web app provides lap comparison and race statistics.
+Apxeer is a simracing telemetry platform — "Strava for sim racing". The desktop app records lap telemetry from the simulator and uploads it to the server; the web app provides lap comparison and race statistics.
 
 ## Components
 
 ```
-racemate-desktop/  — Tauri 2 app (Windows only)
-racemate-api/      — Go REST API (Fly.io)
-racemate-web/      — Preact + Vite web frontend (Fly.io)
+apxeer-desktop/  — Tauri 2 app (Windows only)
+apxeer-api/      — Go REST API (Fly.io)
+apxeer-web/      — Preact + Vite web frontend (Fly.io)
 lmu-telemetry/     — LMU C++ headers + sample XML result files
 plans/             — SPEC.md (full spec) + lmu-shared-memory-rust.md
 docs/              — Architecture and design documentation (this folder)
@@ -23,13 +23,13 @@ docs/              — Architecture and design documentation (this folder)
 | Backend API | Go (chi router, pgx, godotenv) |
 | Web frontend | Preact + Vite + Tailwind + wouter |
 | Database + Auth | Supabase (Postgres + Google/Discord OAuth) |
-| File storage | Supabase Storage (local: `LOCAL_STORAGE_DIR=/tmp/racemate-storage`) |
+| File storage | Supabase Storage (local: `LOCAL_STORAGE_DIR=/tmp/apxeer-storage`) |
 | Hosting | Fly.io (API + web) |
 
 ## Data Flow
 
-1. **Telemetry recording** — `telemetry.rs` reads `LMU_Data` Windows shared memory at 20Hz, detects lap boundaries, writes `{timestamp}-lap-{n}.json.gz` to `<AppData>/racemate/buffer/`
-2. **Results parsing** — `results.rs` polls the LMU XML results folder every 5s, parses session XML, writes `{filename}.json.gz` to `<AppData>/racemate/results/`
+1. **Telemetry recording** — `telemetry.rs` reads `LMU_Data` Windows shared memory at 20Hz, detects lap boundaries, writes `{timestamp}-lap-{n}.json.gz` to `<AppData>/apxeer/buffer/`
+2. **Results parsing** — `results.rs` polls the LMU XML results folder every 5s, parses session XML, writes `{filename}.json.gz` to `<AppData>/apxeer/results/`
 3. **Upload** — `upload.rs` reads both buffer folders, POSTs lap files to `POST /api/laps` (gzip body + `X-Lap-Metadata` header) and session files to `POST /api/sessions`; deletes local file on success. Runs every 30s or on manual trigger.
 4. **Storage** — API stores telemetry as MessagePack files in Supabase Storage at `telemetry/{user_id}/{lap_id}.msgpack`; the `laps.telemetry_url` DB column references this file. Telemetry samples are **not** stored as DB rows.
 5. **Compare** — Web frontend fetches `GET /api/compare?lap_a=:id&lap_b=:id`, renders track map SVG from XYZ position data and telemetry charts (speed, throttle, brake, gear, RPM, steering).
@@ -57,7 +57,7 @@ Auth: `Authorization: Bearer <supabase_jwt>`. Local dev bypasses JWT when token 
 
 ## Database Schema
 
-See `racemate-api/migrations/` for authoritative schema. Key tables: `laps`, `sessions`.
+See `apxeer-api/migrations/` for authoritative schema. Key tables: `laps`, `sessions`.
 
 ## Lap File Format
 

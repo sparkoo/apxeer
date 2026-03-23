@@ -17,8 +17,8 @@ else
   wsl = wsl -e bash -c "$(1)"
 endif
 
-API_DIR  := /mnt/c/Users/michal/dev/racemate/apxeer-api
-WEB_DIR  := /mnt/c/Users/michal/dev/racemate/apxeer-web
+API_DIR  := /mnt/c/Users/michal/dev/apxeer/apxeer-api
+WEB_DIR  := /mnt/c/Users/michal/dev/apxeer/apxeer-web
 DESK_DIR := apxeer-desktop
 
 .PHONY: help db db-stop migrate api web desktop seed dev
