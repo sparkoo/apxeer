@@ -425,8 +425,7 @@ fn parse_incident(node: &roxmltree::Node) -> Option<ParsedStreamEvent> {
     let with_pos = text[value_start..].find(with_marker)? + value_start + with_marker.len();
     let remainder = &text[with_pos..];
 
-    let detail = if remainder.starts_with("another vehicle ") {
-        let other_part = &remainder["another vehicle ".len()..];
+    let detail = if let Some(other_part) = remainder.strip_prefix("another vehicle ") {
         let other_name = other_part.rsplit_once('(')
             .map(|(name, _)| name.to_string())
             .unwrap_or_else(|| other_part.to_string());
