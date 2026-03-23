@@ -13,9 +13,11 @@ CREATE TABLE IF NOT EXISTS public.users (
 
 CREATE TABLE IF NOT EXISTS public.tracks (
     id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    name      text UNIQUE NOT NULL,
+    name      text NOT NULL,
+    layout    text,
     length_m  float NOT NULL DEFAULT 0,
-    map_path  text
+    map_path  text,
+    UNIQUE (name, layout)
 );
 
 CREATE TABLE IF NOT EXISTS public.cars (
@@ -25,14 +27,30 @@ CREATE TABLE IF NOT EXISTS public.cars (
     UNIQUE (name, class)
 );
 
+CREATE TABLE IF NOT EXISTS public.events (
+    id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    track_id         uuid NOT NULL REFERENCES public.tracks(id),
+    event_name       text,
+    started_at       timestamptz NOT NULL,
+    game_version     text,
+    setting          text,
+    server_name      text,
+    fuel_mult        float NOT NULL DEFAULT 1,
+    tire_mult        float NOT NULL DEFAULT 1,
+    damage_mult      int NOT NULL DEFAULT 100,
+    source_datetime  bigint UNIQUE
+);
+
 CREATE TABLE IF NOT EXISTS public.sessions (
-    id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    track_id     uuid NOT NULL REFERENCES public.tracks(id),
-    session_type text NOT NULL,
-    event_name   text,
-    started_at   timestamptz NOT NULL,
-    duration_min int NOT NULL DEFAULT 0,
-    game_version text
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id        uuid REFERENCES public.events(id),
+    track_id        uuid NOT NULL REFERENCES public.tracks(id),
+    session_type    text NOT NULL,
+    event_name      text,
+    started_at      timestamptz NOT NULL,
+    duration_min    int NOT NULL DEFAULT 0,
+    game_version    text,
+    source_filename text UNIQUE
 );
 
 CREATE TABLE IF NOT EXISTS public.session_results (
@@ -49,7 +67,10 @@ CREATE TABLE IF NOT EXISTS public.session_results (
     laps_completed int NOT NULL DEFAULT 0,
     best_lap_ms    int,
     pitstops       int NOT NULL DEFAULT 0,
-    finish_status  text
+    finish_status  text,
+    finish_time_s  float,
+    class_grid_pos int,
+    is_connected   bool NOT NULL DEFAULT true
 );
 
 CREATE TABLE IF NOT EXISTS public.session_laps (
@@ -68,8 +89,23 @@ CREATE TABLE IF NOT EXISTS public.session_laps (
     tyre_wear_rr      float,
     tyre_compound     text,
     is_pit_lap        bool NOT NULL DEFAULT false,
-    race_position     int
+    race_position     int,
+    elapsed_time_s    float,
+    fuel_used         float
 );
+
+CREATE TABLE IF NOT EXISTS public.session_events (
+    id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id   uuid NOT NULL REFERENCES public.sessions(id) ON DELETE CASCADE,
+    event_type   text NOT NULL,
+    elapsed_time float NOT NULL,
+    driver_name  text,
+    detail       jsonb,
+    description  text
+);
+
+CREATE INDEX IF NOT EXISTS session_events_session_id ON public.session_events(session_id);
+CREATE INDEX IF NOT EXISTS session_events_type ON public.session_events(event_type);
 
 CREATE TABLE IF NOT EXISTS public.laps (
     id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
