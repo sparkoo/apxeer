@@ -30,7 +30,7 @@ All commands are run from the repo root via `make`.
 | `make web` | Start Next.js dev server on port 3000 |
 | `make db` | Start Postgres 17 container via Podman |
 | `make db-stop` | Stop Postgres container |
-| `make migrate` | Run `migrations/001_local.sql` against local DB |
+| `make migrate` | Run `db/local.sql` against local DB |
 | `make seed` | Insert two test laps with fake telemetry |
 | `make dev` | Start DB + API + web together |
 

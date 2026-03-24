@@ -60,9 +60,10 @@ Do this once before CI/CD can run.
 - `apxeer-stage` (region: eu-central-1 / Frankfurt)
 - `apxeer-prod` (same region)
 
-**Run migrations** on each project — paste into the SQL editor (Dashboard → SQL Editor), in order:
-1. `apxeer-api/migrations/001_initial.sql`
-2. `apxeer-api/migrations/002_events_and_enrichment.sql`
+**Run migrations** on each project:
+```bash
+supabase db push --project-ref <ref>   # applies all migrations in supabase/migrations/
+```
 
 **Create storage bucket** on each project:
 - Dashboard → Storage → New bucket

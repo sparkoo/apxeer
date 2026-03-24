@@ -35,7 +35,7 @@ db-stop:
 	podman stop apxeer-postgres
 
 migrate:
-	cd $(API_DIR) && psql $$DATABASE_URL -f migrations/001_local.sql
+	cd $(API_DIR) && psql $$DATABASE_URL -f db/local.sql
 
 # ── API ───────────────────────────────────────────────────────────────────────
 
