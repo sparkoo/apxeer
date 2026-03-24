@@ -1,264 +1,181 @@
 # Deployment Guide
 
-## Stack & Hosting
+## Stack
 
 | Service | Platform | Cost |
 |---|---|---|
-| Database + Auth + Storage | Supabase | Free tier (2 projects) |
-| Go REST API | Fly.io | Free tier (shared CPU, 256 MB) |
+| DB + Auth + Storage + API | Supabase | Free tier (2 projects) |
 | Web frontend (static SPA) | Cloudflare Pages | Free |
-| Desktop app (Windows) | GitHub Actions build artifact | Free |
+
+Two environments — **stage** and **prod** — each backed by a separate Supabase project.
 
 ---
 
-## Order of Operations
+## Architecture
 
-Set these up in order — each depends on the previous:
+```
+Supabase (apxeer-stage)
+  ├── Postgres DB
+  ├── Auth (OAuth: Google, Discord, GitHub)
+  ├── Storage bucket: telemetry/
+  └── Edge Function: api  ← handles all REST endpoints
 
-1. Supabase (staging project)
-2. Supabase (production project)
-3. Fly.io API apps
-4. Cloudflare Pages web apps
-5. GitHub Actions secrets
-6. Desktop build
+Cloudflare Pages: apxeer-web-staging  ← static SPA
 
----
-
-## 1. Supabase Setup
-
-Do this **twice** — once for staging, once for production.
-
-### 1.1 Create project
-
-1. Go to [supabase.com](https://supabase.com) → New project
-2. Name: `apxeer-staging` / `apxeer-prod`
-3. Region: `eu-central-1` (Frankfurt) — matches Fly.io `fra`
-4. Save the database password
-
-### 1.2 Run migrations
-
-From the repo root, using `psql` (or the Supabase SQL editor):
-
-```bash
-# Install Supabase CLI (optional, psql works too)
-brew install supabase/tap/supabase   # macOS
-# or: npm install -g supabase
-
-# Get your connection string from:
-# Dashboard → Project Settings → Database → Connection string → URI (use the pooler on port 6543)
-
-psql "$DATABASE_URL" -f apxeer-api/migrations/001_initial.sql
-psql "$DATABASE_URL" -f apxeer-api/migrations/002_events_and_enrichment.sql
+Supabase (apxeer-prod)  — same structure, separate project
+Cloudflare Pages: apxeer-web
 ```
 
-Alternatively, paste each file's content into the Supabase SQL editor.
+**API URL pattern:**
+- Stage: `https://<stage-ref>.supabase.co/functions/v1`
+- Prod:  `https://<prod-ref>.supabase.co/functions/v1`
 
-### 1.3 Create Storage bucket
+The web frontend calls `${VITE_API_URL}/api/laps`, `/api/compare`, etc.
+The desktop app's `api_url` setting should point to `https://<prod-ref>.supabase.co/functions/v1`.
 
-Dashboard → Storage → New bucket:
+---
+
+## CI/CD Triggers
+
+| Trigger | What deploys |
+|---|---|
+| Push to `master` | Edge Function + web → **stage** (automatic) |
+| Actions → Run workflow → `stage` | Edge Function + web → **stage** (manual, any branch) |
+| Actions → Run workflow → `prod` | Edge Function + web → **prod** (manual, master only) |
+
+Relevant files:
+- `.github/workflows/ci.yml` — build checks (unchanged, runs on every push + PR)
+- `.github/workflows/deploy.yml` — deployments
+- `supabase/functions/api/index.ts` — Edge Function (all REST endpoints)
+
+---
+
+## One-Time Setup
+
+Do this once before CI/CD can run.
+
+### Step 1: Supabase
+
+**Create 2 projects** at [supabase.com](https://supabase.com):
+- `apxeer-stage` (region: eu-central-1 / Frankfurt)
+- `apxeer-prod` (same region)
+
+**Run migrations** on each project — paste into the SQL editor (Dashboard → SQL Editor), in order:
+1. `apxeer-api/migrations/001_initial.sql`
+2. `apxeer-api/migrations/002_events_and_enrichment.sql`
+
+**Create storage bucket** on each project:
+- Dashboard → Storage → New bucket
 - Name: `telemetry`
-- Public: **off** (private, RLS enforced)
+- Public: **off**
 
-### 1.4 Collect secrets
+**Set Edge Function secrets** on each project (Dashboard → Edge Functions → Manage secrets, or use CLI):
+```bash
+supabase secrets set --project-ref <ref> \
+  SUPABASE_SERVICE_ROLE_KEY=<service_role_key> \
+  DATABASE_URL="postgres://postgres.<ref>:<pass>@aws-0-eu-central-1.pooler.supabase.com:6543/postgres"
+```
 
-Dashboard → Project Settings → API. Save these for later:
+Use the **transaction pooler** URL (port 6543) for `DATABASE_URL`.
 
-| Secret | Where to find it |
+**Collect credentials** — from Dashboard → Settings → API:
+- Project ref (short ID in the URL, e.g. `abcdefghij`)
+- Project URL: `https://<ref>.supabase.co`
+- Anon key (`anon public`)
+- Service role key (`service_role`)
+
+**Create a personal access token** (once, for CI):
+- supabase.com → Account → Access Tokens → Generate new token
+- Name: `github-actions`
+
+### Step 2: Cloudflare Pages
+
+**Create account** at [cloudflare.com](https://cloudflare.com) — free, no credit card.
+
+**Create 2 Pages projects** (Pages → Create → **Direct Upload**):
+- `apxeer-web-staging`
+- `apxeer-web`
+
+**Create API token**: My Profile → API Tokens → Create → use **"Edit Cloudflare Workers"** template.
+
+**Note your Account ID** from the sidebar.
+
+### Step 3: GitHub Actions Secrets
+
+Settings → Secrets and variables → Actions → New repository secret:
+
+| Secret | Value |
 |---|---|
-| `DATABASE_URL` | Settings → Database → Connection string (pooler, port 6543) |
-| `SUPABASE_URL` | Settings → API → Project URL |
-| `SUPABASE_SERVICE_KEY` | Settings → API → `service_role` key |
-| `SUPABASE_JWT_SECRET` | Settings → API → JWT Secret |
-| `SUPABASE_ANON_KEY` | Settings → API → `anon` key (for the web frontend) |
+| `SUPABASE_ACCESS_TOKEN` | Personal access token from Step 1 |
+| `STAGE_SUPABASE_PROJECT_REF` | e.g. `abcdefghij` |
+| `PROD_SUPABASE_PROJECT_REF` | e.g. `klmnopqrst` |
+| `STAGE_SUPABASE_URL` | `https://<stage-ref>.supabase.co` |
+| `PROD_SUPABASE_URL` | `https://<prod-ref>.supabase.co` |
+| `STAGE_SUPABASE_ANON_KEY` | stage anon key |
+| `PROD_SUPABASE_ANON_KEY` | prod anon key |
+| `CLOUDFLARE_API_TOKEN` | from Step 2 |
+| `CLOUDFLARE_ACCOUNT_ID` | from Step 2 |
 
 ---
 
-## 2. Fly.io API
-
-### 2.1 Install flyctl & log in
+## Local Development
 
 ```bash
-curl -L https://fly.io/install.sh | sh
-flyctl auth login
-```
+# 1. Install Supabase CLI
+brew install supabase/tap/supabase   # macOS/Linux
 
-### 2.2 Create apps
+# 2. Start local Supabase stack (DB + Auth + Storage + Edge Function runtime)
+supabase start
 
-```bash
-flyctl apps create apxeer-api-staging --org personal
-flyctl apps create apxeer-api          --org personal
-```
+# 3. Run migrations
+supabase db push
 
-### 2.3 Set secrets
+# 4. Create supabase/.env.local with the local service role key
+#    (printed by `supabase start` — look for "service_role key")
+echo 'SUPABASE_SERVICE_ROLE_KEY=<key>' > supabase/.env.local
+echo 'DATABASE_URL=postgresql://postgres:postgres@localhost:54322/postgres' >> supabase/.env.local
 
-```bash
-# Staging — use staging Supabase values
-flyctl secrets set --app apxeer-api-staging \
-  DATABASE_URL="postgres://postgres.<ref>:<pass>@aws-0-eu-central-1.pooler.supabase.com:6543/postgres" \
-  SUPABASE_URL="https://<staging-ref>.supabase.co" \
-  SUPABASE_SERVICE_KEY="<service_role_key>" \
-  SUPABASE_JWT_SECRET="<jwt_secret>"
+# 5. Serve the Edge Function locally
+supabase functions serve api --env-file supabase/.env.local
 
-# Production — use prod Supabase values
-flyctl secrets set --app apxeer-api \
-  DATABASE_URL="..." \
-  SUPABASE_URL="..." \
-  SUPABASE_SERVICE_KEY="..." \
-  SUPABASE_JWT_SECRET="..."
-```
-
-### 2.4 First deploy (manual)
-
-```bash
-cd apxeer-api
-
-# Staging
-flyctl deploy --app apxeer-api-staging
-
-# Production
-flyctl deploy --app apxeer-api
-```
-
-### 2.5 Verify
-
-```bash
-curl https://apxeer-api-staging.fly.dev/health   # → 200 OK
-curl https://apxeer-api.fly.dev/health            # → 200 OK
-```
-
----
-
-## 3. Cloudflare Pages (Web Frontend)
-
-The web app is a static Vite/Preact SPA — no server required.
-
-### 3.1 Create Cloudflare account & get tokens
-
-1. Sign up at [cloudflare.com](https://cloudflare.com) (free)
-2. My Profile → API Tokens → Create Token → **Edit Cloudflare Workers** template
-3. Note your **Account ID** from the dashboard sidebar
-
-### 3.2 Create Pages projects
-
-For each project: Pages → Create a project → **Direct Upload** (we deploy via CI, not git integration).
-
-| Project name | Used for |
-|---|---|
-| `apxeer-web-staging` | Staging |
-| `apxeer-web` | Production |
-
-> Alternatively, connect the GitHub repo to CF Pages for the staging project and let it auto-deploy — but CI-based deploy (used here) gives more control over environment variables.
-
-### 3.3 First deploy (manual)
-
-```bash
+# 6. Start the web frontend (in another terminal)
 cd apxeer-web
-npm ci
-
-# Staging
-VITE_API_URL=https://apxeer-api-staging.fly.dev \
-VITE_SUPABASE_URL=https://<staging-ref>.supabase.co \
-VITE_SUPABASE_ANON_KEY=<anon_key> \
-npm run build
-
-npx wrangler pages deploy dist --project-name apxeer-web-staging
-
-# Production
-VITE_API_URL=https://apxeer-api.fly.dev \
-VITE_SUPABASE_URL=https://<prod-ref>.supabase.co \
-VITE_SUPABASE_ANON_KEY=<anon_key> \
-npm run build
-
-npx wrangler pages deploy dist --project-name apxeer-web
+cp .env.example .env.local    # then fill in VITE_SUPABASE_ANON_KEY from `supabase start` output
+npm install
+npm run dev
 ```
 
-### 3.4 Verify
-
-```
-https://apxeer-web-staging.pages.dev   → app loads, login works
-https://apxeer-web.pages.dev           → production
-```
+Local URLs:
+- Web: `http://localhost:5173`
+- Edge Function: `http://localhost:54321/functions/v1/api/health`
+- Supabase Studio: `http://localhost:54323`
 
 ---
 
-## 4. GitHub Actions Secrets
-
-Go to the repo → Settings → Secrets and variables → Actions → New repository secret.
-
-| Secret name | Value |
-|---|---|
-| `FLY_API_TOKEN` | `flyctl tokens create deploy` |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API token (step 3.1) |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID (step 3.1) |
-| `STAGING_SUPABASE_URL` | staging Supabase project URL |
-| `STAGING_SUPABASE_ANON_KEY` | staging `anon` key |
-| `PROD_SUPABASE_URL` | production Supabase project URL |
-| `PROD_SUPABASE_ANON_KEY` | production `anon` key |
-
-After this, the CI/CD pipeline in `.github/workflows/deploy.yml` takes over:
-- **Push to `master`** → auto-deploys API + Web to **staging**
-- **Actions → Run workflow** → deploys API + Web to **production**, and builds the Windows desktop installer
-
----
-
-## 5. Desktop App (Windows)
-
-### Local build
-
-```bash
-# Prerequisites (Windows):
-# - Rust stable: https://rustup.rs
-# - Node 22: https://nodejs.org
-# - cargo-tauri: cargo install tauri-cli
-
-cd apxeer-desktop
-cargo tauri build
-# Installer output: src-tauri/target/release/bundle/msi/*.msi
-#                   src-tauri/target/release/bundle/nsis/*.exe
-```
-
-### CI build (production)
-
-Trigger via GitHub Actions → Deploy → Run workflow. The job:
-1. Checks out the repo on `windows-latest`
-2. Builds with `tauri-apps/tauri-action`
-3. Uploads the `.msi` / `.exe` as a workflow artifact (retained 30 days)
-
-Download from: Actions → Deploy → (run) → Artifacts → `apxeer-desktop-windows`
-
-### Configure before shipping
+## Desktop App
 
 In the desktop app Settings UI (or `<AppData>/apxeer/config/settings.json`), set:
 ```json
 {
-  "api_url": "https://apxeer-api.fly.dev",
-  "auth_token": "<user's Supabase JWT>",
+  "api_url": "https://<prod-ref>.supabase.co/functions/v1",
+  "auth_token": "<supabase-user-jwt>",
   "lmu_results_dir": "C:\\Users\\<name>\\Documents\\Le Mans Ultimate\\UserData\\Log\\Results"
 }
 ```
 
----
-
-## CI/CD Summary
-
-| Trigger | What deploys |
-|---|---|
-| Push to `master` | API → Fly.io staging, Web → CF Pages staging |
-| Actions → Run workflow | API → Fly.io prod, Web → CF Pages prod, Desktop → Windows artifact |
-
-Relevant files:
-- `.github/workflows/ci.yml` — build checks (unchanged, runs on every push + PR)
-- `.github/workflows/deploy.yml` — deployments (staging auto, prod manual)
-- `apxeer-api/Dockerfile` — Go API container image
-- `apxeer-api/fly.toml` — Fly.io machine config
+For staging, use the stage project ref instead.
 
 ---
 
 ## Verification Checklist
 
-- [ ] `GET /health` → 200 on both staging and production API
-- [ ] Web app opens and Supabase login works
-- [ ] Upload a lap from desktop → appears in the web app
-- [ ] Supabase Storage → `telemetry/{user_id}/` has `.json.gz` files
-- [ ] Push a commit to `master` → staging deploy job runs green in Actions
-- [ ] Run workflow manually → production deploy + desktop artifact appear in Actions
+- [ ] `GET https://<stage-ref>.supabase.co/functions/v1/api/health` → `ok`
+- [ ] `GET https://<prod-ref>.supabase.co/functions/v1/api/health` → `ok`
+- [ ] Stage web app opens at `https://apxeer-web-staging.pages.dev` and login works
+- [ ] Prod web app opens at `https://apxeer-web.pages.dev` and login works
+- [ ] Upload a lap from desktop → row appears in `laps` table, file in `telemetry/` bucket
+- [ ] `/compare` page loads telemetry charts
+- [ ] Push commit to `master` → `deploy-stage` job is green in Actions
+- [ ] Run workflow (stage, feature branch) → deploys to stage
+- [ ] Run workflow (prod, master) → `deploy-prod` job is green
+- [ ] Run workflow (prod, feature branch) → `deploy-prod` job is skipped

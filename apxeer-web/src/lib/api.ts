@@ -1,7 +1,7 @@
 import type { CompareData, CommunityStats, LapMetadata, Session, TrackRecord, UserSession } from "./types";
 import { supabase } from "./supabase";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:54321/functions/v1";
 
 async function authHeaders(): Promise<HeadersInit> {
   const { data: { session } } = await supabase.auth.getSession();
