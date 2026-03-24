@@ -2,6 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Open Source Guidelines
+
+This is a public open source repository. All contributions must follow these rules:
+
+- **No secrets**: Never commit API keys, tokens, passwords, or any credentials. Use environment variables or config files that are listed in `.gitignore`.
+- **No local paths**: Do not hardcode user-specific or machine-specific paths (e.g. `/home/yourname/`, `C:\Users\yourname\`). Use relative paths, environment variables, or runtime-resolved paths.
+- **No local dev env specifics**: Do not commit editor configs, IDE settings, or local tooling overrides that are personal to a developer's machine.
+- **No personal data**: Do not include real telemetry data, real user data, or any personally identifiable information in commits, seeds, or test fixtures.
+
 ## Documentation
 
 Architecture, design decisions, and notable implementation details are kept in `docs/`. Update the relevant file(s) in `docs/` whenever you make a change that affects architecture, data flow, API contracts, DB schema, or key design decisions. Create new files as needed — keep them focused by topic.
