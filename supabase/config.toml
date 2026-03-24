@@ -1,3 +1,6 @@
+# Local development config for the Supabase CLI.
+# project_id here is a local-only label — do NOT put the real Supabase project
+# ref here. Running `supabase link` will overwrite this; do not commit that change.
 project_id = "apxeer"
 
 [api]
