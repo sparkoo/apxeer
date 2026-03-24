@@ -1,0 +1,39 @@
+# Local development config for the Supabase CLI.
+# project_id here is a local-only label — do NOT put the real Supabase project
+# ref here. Running `supabase link` will overwrite this; do not commit that change.
+project_id = "apxeer"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["https://localhost:3000"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+
+[functions.api]
+verify_jwt = false  # we validate JWTs manually to support the DEV_TOKEN bypass
