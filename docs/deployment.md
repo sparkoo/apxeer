@@ -69,14 +69,17 @@ Do this once before CI/CD can run.
 - Name: `telemetry`
 - Public: **off**
 
-**Set Edge Function secrets** on each project (Dashboard → Edge Functions → Manage secrets, or use CLI):
+**Edge Function secrets:** The following are **auto-injected** — no manual setup needed:
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_DB_URL` (direct Postgres connection string)
+
+No additional secrets are required. If `SUPABASE_DB_URL` is not available in your Supabase version, set `DATABASE_URL` manually via Dashboard → Edge Functions → Manage secrets:
 ```bash
 supabase secrets set --project-ref <ref> \
-  SUPABASE_SERVICE_ROLE_KEY=<service_role_key> \
   DATABASE_URL="postgres://postgres.<ref>:<pass>@aws-0-eu-central-1.pooler.supabase.com:6543/postgres"
 ```
-
-Use the **transaction pooler** URL (port 6543) for `DATABASE_URL`.
 
 **Collect credentials** — from Dashboard → Settings → API:
 - Project ref (short ID in the URL, e.g. `abcdefghij`)
@@ -133,6 +136,8 @@ supabase db push
 # 4. Create supabase/.env.local with the local service role key
 #    (printed by `supabase start` — look for "service_role key")
 echo 'SUPABASE_SERVICE_ROLE_KEY=<key>' > supabase/.env.local
+# SUPABASE_DB_URL is auto-injected in deployed Edge Functions.
+# For local dev, set DATABASE_URL pointing at the local Supabase DB:
 echo 'DATABASE_URL=postgresql://postgres:postgres@localhost:54322/postgres' >> supabase/.env.local
 
 # 5. Serve the Edge Function locally

@@ -32,5 +32,5 @@ port = 54324
 [storage]
 enabled = true
 
-[functions]
-verify_jwt = false
+[functions.api]
+verify_jwt = false  # we validate JWTs manually to support the DEV_TOKEN bypass

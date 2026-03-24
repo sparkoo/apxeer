@@ -36,9 +36,12 @@ let _sql: ReturnType<typeof postgres> | null = null;
 
 function getSql(): ReturnType<typeof postgres> {
   if (!_sql) {
-    _sql = postgres(Deno.env.get("DATABASE_URL")!, {
+    // SUPABASE_DB_URL is auto-injected by the Edge Function runtime (direct connection).
+    // DATABASE_URL is a fallback for local dev or if the auto-injection is unavailable.
+    const dbUrl = Deno.env.get("SUPABASE_DB_URL") ?? Deno.env.get("DATABASE_URL")!;
+    _sql = postgres(dbUrl, {
       ssl: "require",
-      prepare: false, // required for Supabase transaction mode pooler
+      prepare: false, // safe for both pooler and direct connections
       max: 1,
     });
   }
