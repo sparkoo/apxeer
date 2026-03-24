@@ -19,6 +19,13 @@ Architecture, design decisions, and notable implementation details are kept in `
 
 Commit often — after each small, self-contained, working change. Each commit should leave the codebase in a working state. Prefer many focused commits over one large commit at the end of a task.
 
+## Pull Request Guidelines
+
+When working on a GitHub Pull Request:
+
+- **Keep the title and description up to date**: As work evolves, update the PR title and description to accurately reflect the current state of the changes.
+- **Link the GitHub Issue**: If there is a related GitHub Issue, always include a link to it in the PR description (e.g. `Closes #123` or `Related to #123`).
+
 ## Development Commands
 
 All commands are run from the repo root via `make`.
