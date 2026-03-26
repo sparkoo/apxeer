@@ -6,32 +6,6 @@ on:
   pull_request:
 
 jobs:
-  # ── Go API ────────────────────────────────────────────────────────────────
-  api:
-    name: Go API
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apxeer-api
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: apxeer-api/go.mod
-          cache-dependency-path: apxeer-api/go.sum
-
-      - name: Download modules
-        run: go mod download
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Build
-        run: go build ./...
-
   # ── Web frontend ──────────────────────────────────────────────────────────
   web:
     name: Web
