@@ -25,7 +25,6 @@ export const api = {
       if (userId) params.set("user_id", userId);
       return get(`/api/laps?${params}`);
     },
-    get: (id: string): Promise<LapMetadata> => get(`/api/laps/${id}`),
   },
 
   compare: (lapAId: string, lapBId: string): Promise<CompareData> =>
@@ -45,7 +44,6 @@ export const api = {
   },
 
   users: {
-    get: (id: string) => get(`/api/users/${id}`),
     laps: (id: string): Promise<LapMetadata[]> => get(`/api/users/${id}/laps`),
     sessions: (id: string): Promise<UserSession[]> => get(`/api/users/${id}/sessions`),
   },

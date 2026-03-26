@@ -559,10 +559,9 @@ mod tests {
 
     #[test]
     fn parses_race_xml() {
-        let path = std::path::Path::new(
-            r"C:\Users\michal\dev\apxeer\lmu-telemetry\results\2026_03_01_13_56_27-87R1.xml",
-        );
-        let session = parse_xml(path).expect("parse failed");
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../lmu-telemetry/results/2026_03_01_13_56_27-87R1.xml");
+        let session = parse_xml(&path).expect("parse failed");
         assert_eq!(session.track_venue, "Autodromo Enzo e Dino Ferrari");
         assert!(!session.track_course.is_empty());
         assert!(!session.setting.is_empty());
@@ -590,10 +589,9 @@ mod tests {
 
     #[test]
     fn skips_practice_xml() {
-        let path = std::path::Path::new(
-            r"C:\Users\michal\dev\apxeer\lmu-telemetry\results\2026_03_04_05_51_30-39P1.xml",
-        );
-        let session = parse_xml(path).expect("parse failed");
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../lmu-telemetry/results/2026_03_04_05_51_30-39P1.xml");
+        let session = parse_xml(&path).expect("parse failed");
         // Practice-only files produce no blocks — nothing to upload.
         assert!(session.session_blocks.is_empty(), "practice should be filtered out");
         assert!(!session.track_course.is_empty());
