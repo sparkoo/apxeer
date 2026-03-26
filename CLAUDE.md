@@ -55,8 +55,8 @@ cd apxeer-desktop && cargo test
 
 ```
 apxeer-desktop/  — Tauri 2 app (Windows only)
-apxeer-api/      — Go REST API (Fly.io)
-apxeer-web/      — Next.js web frontend (Fly.io)
+apxeer-api/      — Go REST API (Supabase Edge Function)
+apxeer-web/      — Preact + Vite web frontend (Cloudflare Workers)
 lmu-telemetry/     — LMU C++ headers + sample XML result files
 plans/             — SPEC.md (full spec) + lmu-shared-memory-rust.md
 ```

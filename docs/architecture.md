@@ -8,8 +8,8 @@ Apxeer is a simracing telemetry platform — "Strava for sim racing". The deskto
 
 ```
 apxeer-desktop/  — Tauri 2 app (Windows only)
-apxeer-api/      — Go REST API (Fly.io)
-apxeer-web/      — Preact + Vite web frontend (Fly.io)
+apxeer-api/      — Go REST API (Supabase Edge Function)
+apxeer-web/      — Preact + Vite web frontend (Cloudflare Workers)
 lmu-telemetry/     — LMU C++ headers + sample XML result files
 plans/             — SPEC.md (full spec) + lmu-shared-memory-rust.md
 docs/              — Architecture and design documentation (this folder)
@@ -24,7 +24,8 @@ docs/              — Architecture and design documentation (this folder)
 | Web frontend | Preact + Vite + Tailwind + wouter |
 | Database + Auth | Supabase (Postgres + Google/Discord OAuth) |
 | File storage | Supabase Storage (local: `LOCAL_STORAGE_DIR=/tmp/apxeer-storage`) |
-| Hosting | Fly.io (API + web) |
+| API hosting | Supabase Edge Functions (Deno) |
+| Web hosting | Cloudflare Workers (static assets) |
 
 ## Data Flow
 

@@ -48,8 +48,8 @@ LMU writes XML result files after each session. These are parsed on the desktop 
 
 ---
 
-## Hosting: Fly.io (not GCP/Firestore)
+## Hosting: Supabase Edge Functions + Cloudflare Workers
 
-API and web frontend are hosted on Fly.io.
+API runs as a Supabase Edge Function (Deno). Web frontend is deployed to Cloudflare Workers as a static asset bundle.
 
-**Why:** Avoid vendor lock-in. Previous stack used GCP/Firestore.
+**Why:** Supabase Edge Functions colocate the API with the database and auth, reducing latency and operational overhead. Cloudflare Workers provides a free, globally distributed CDN for the static frontend with no server to manage.
