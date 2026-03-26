@@ -70,12 +70,6 @@ type LapMetadata struct {
 	SampleRateHz uint32  `json:"sample_rate_hz"`
 }
 
-type UploadLapRequest struct {
-	Metadata LapMetadata `json:"metadata"`
-	// Telemetry samples are uploaded as a separate gzip file in the same request
-	// via multipart form, or the entire .json.gz is sent as the body.
-}
-
 // ListLaps handles GET /api/laps (public — no auth required).
 // Optional query param: user_id to filter by a specific user.
 func ListLaps(db *pgxpool.Pool) http.HandlerFunc {

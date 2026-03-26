@@ -122,11 +122,6 @@ func generateLap(speedFactor float64) []sample {
 					dAngle := traveled * seg.curvature
 					x += r * (math.Cos(heading) - math.Cos(heading+dAngle)) * math.Copysign(1, seg.curvature)
 					z += r * (math.Sin(heading+dAngle) - math.Sin(heading)) * math.Abs(1/seg.curvature) * math.Copysign(1, seg.curvature)
-					// Simplified: just integrate heading change
-					x2 := x
-					z2 := z
-					_ = x2
-					_ = z2
 					heading += dAngle
 				}
 				return point{x, z, heading}
