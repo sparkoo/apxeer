@@ -33,13 +33,9 @@ All commands are run from the repo root via `make`.
 | Command | What it does |
 |---|---|
 | `make desktop` | Start Tauri desktop app (Windows only) |
-| `make api` | Start Go API on port 8080 |
-| `make web` | Start Next.js dev server on port 3000 |
-| `make db` | Start Postgres 17 container via Podman |
-| `make db-stop` | Stop Postgres container |
-| `make migrate` | Run `db/local.sql` against local DB |
-| `make seed` | Insert two test laps with fake telemetry |
-| `make dev` | Start DB + API + web together |
+| `make web` | Start Vite dev server on port 3000 |
+
+For the API locally, use the [Supabase CLI](https://supabase.com/docs/guides/local-development): `supabase start` starts a local Supabase instance (Postgres + Edge Functions) and `supabase db reset` applies migrations from `supabase/migrations/`.
 
 ### Desktop-specific commands
 ```bash
@@ -55,10 +51,10 @@ cd apxeer-desktop && cargo test
 
 ```
 apxeer-desktop/  — Tauri 2 app (Windows only)
-apxeer-api/      — Go REST API (Supabase Edge Function)
 apxeer-web/      — Preact + Vite web frontend (Cloudflare Workers)
-lmu-telemetry/     — LMU C++ headers + sample XML result files
-plans/             — SPEC.md (full spec) + lmu-shared-memory-rust.md
+supabase/        — Edge Function (TypeScript REST API) + DB migrations
+lmu-telemetry/   — LMU C++ headers + sample XML result files
+plans/           — SPEC.md (full product spec)
 ```
 
 ### Desktop App (Tauri 2 + Rust + HTMX)
@@ -112,9 +108,9 @@ trait SimTelemetrySource {
 }
 ```
 
-### API (Go) — not yet implemented
+### API (Supabase Edge Function)
 
-REST API with `Authorization: Bearer <supabase_jwt>`. Key endpoints:
+Single TypeScript function at `supabase/functions/api/index.ts`. Deployed to `https://<ref>.supabase.co/functions/v1/api`. Key endpoints:
 - `POST /api/laps` — upload lap (gzip body + `X-Lap-Metadata` header)
 - `POST /api/sessions` — upload parsed XML session
 - `GET /api/compare?lap_a=:id&lap_b=:id` — fetch both laps' telemetry
@@ -137,7 +133,7 @@ Supabase (Postgres). Telemetry samples are **not** stored as DB rows — they ar
 Settings are persisted to `<AppData>/apxeer/config/settings.json`:
 ```json
 {
-  "api_url": "http://localhost:8080",
+  "api_url": "http://localhost:54321/functions/v1",
   "auth_token": "",
   "auto_upload": false,
   "lmu_results_dir": ""
