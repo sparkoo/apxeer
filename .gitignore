@@ -4,3 +4,23 @@
 # OS
 .DS_Store
 Thumbs.db
+*.swp
+*~
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Secrets / environment
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+dist/
+node_modules/
+*.js.map
+
+# Rust
+target/
