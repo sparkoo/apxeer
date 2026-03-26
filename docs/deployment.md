@@ -106,19 +106,27 @@ supabase secrets set --project-ref <ref> \
 
 ### Step 3: GitHub Actions Secrets
 
-Settings → Secrets and variables → Actions → New repository secret:
+The workflow uses GitHub **environments** (`stage` and `prod`).
+Settings → Environments → (create `stage` and `prod`) → add secrets/variables per environment.
+
+**Secrets** (same name in both environments, different values):
 
 | Secret | Value |
 |---|---|
-| `SUPABASE_ACCESS_TOKEN` | Personal access token from Step 1 |
-| `STAGE_SUPABASE_PROJECT_REF` | e.g. `abcdefghij` |
-| `PROD_SUPABASE_PROJECT_REF` | e.g. `klmnopqrst` |
-| `STAGE_SUPABASE_URL` | `https://<stage-ref>.supabase.co` |
-| `PROD_SUPABASE_URL` | `https://<prod-ref>.supabase.co` |
-| `STAGE_SUPABASE_ANON_KEY` | stage anon key |
-| `PROD_SUPABASE_ANON_KEY` | prod anon key |
-| `CLOUDFLARE_API_TOKEN` | from Step 2 |
-| `CLOUDFLARE_ACCOUNT_ID` | from Step 2 |
+| `SUPABASE_ACCESS_TOKEN` | Personal access token from Step 1 (can be repo-level) |
+| `SUPABASE_PROJECT_REF` | e.g. `abcdefghij` (stage ref) or `klmnopqrst` (prod ref) |
+| `SUPABASE_URL` | `https://<ref>.supabase.co` |
+| `SUPABASE_ANON_KEY` | anon key for that environment |
+| `CLOUDFLARE_API_TOKEN` | from Step 2 (can be repo-level) |
+| `CLOUDFLARE_ACCOUNT_ID` | from Step 2 (can be repo-level) |
+
+**Variables** (Settings → Environments → Variables):
+
+| Variable | Stage value | Prod value |
+|---|---|---|
+| `SITE_URL` | `https://apxeer-web-staging.pages.dev` | `https://apxeer-web.pages.dev` |
+
+`SITE_URL` is the public URL of the deployed web frontend. It is set as the Supabase auth `site_url` and added to the allowed OAuth redirect URL list automatically on every deploy. If you use a custom domain, update `SITE_URL` to match.
 
 ---
 
