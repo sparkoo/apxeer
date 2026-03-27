@@ -42,6 +42,18 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
+      - name: Configure Supabase auth redirect URLs (stage)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          curl -sf -X PATCH \
+            "https://api.supabase.com/v1/projects/${PROJECT_REF}/config/auth" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"site_url\":\"${SITE_URL}\",\"uri_allow_list\":\"${SITE_URL},http://localhost:5173,http://localhost:3000\"}"
+
       - name: Deploy Edge Function to stage
         run: |
           supabase functions deploy api \
@@ -99,6 +111,18 @@ jobs:
           supabase db push --yes
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Configure Supabase auth redirect URLs (prod)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          curl -sf -X PATCH \
+            "https://api.supabase.com/v1/projects/${PROJECT_REF}/config/auth" \
+            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"site_url\":\"${SITE_URL}\",\"uri_allow_list\":\"${SITE_URL},http://localhost:5173,http://localhost:3000\"}"
 
       - name: Deploy Edge Function to prod
         run: |
