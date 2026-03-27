@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 pub struct Settings {
     /// Base URL of the Apxeer API.
     pub api_url: String,
-    /// Supabase JWT for authenticated uploads. Empty = not logged in.
+    /// Clerk JWT for authenticated uploads. Empty = not logged in.
     pub auth_token: String,
     /// Email of the signed-in user. Empty = not logged in.
     pub user_email: String,
@@ -13,6 +13,14 @@ pub struct Settings {
     pub auto_upload: bool,
     /// Path to the LMU results XML folder.
     pub lmu_results_dir: String,
+    /// Clerk Frontend API domain (e.g. "your-app.clerk.accounts.dev").
+    /// Set this in the app settings to match your Clerk project.
+    #[serde(default = "default_clerk_domain")]
+    pub clerk_domain: String,
+}
+
+fn default_clerk_domain() -> String {
+    String::new()
 }
 
 impl Default for Settings {
@@ -23,6 +31,7 @@ impl Default for Settings {
             user_email: String::new(),
             auto_upload: false,
             lmu_results_dir: String::new(),
+            clerk_domain: String::new(),
         }
     }
 }

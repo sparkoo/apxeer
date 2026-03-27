@@ -1,4 +1,5 @@
 -- 002: Events table, track layouts, enriched session data, stream events
+-- (ported from Supabase migration 20260324000001_events_and_enrichment.sql — no changes needed)
 
 -- Events: groups Practice/Qualify/Race sessions from the same server event
 CREATE TABLE IF NOT EXISTS public.events (

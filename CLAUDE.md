@@ -34,8 +34,20 @@ All commands are run from the repo root via `make`.
 |---|---|
 | `make desktop` | Start Tauri desktop app (Windows only) |
 | `make web` | Start Vite dev server on port 3000 |
+| `make api` | Start Go API on port 8080 |
 
-For the API locally, use the [Supabase CLI](https://supabase.com/docs/guides/local-development): `supabase start` starts a local Supabase instance (Postgres + Edge Functions) and `supabase db reset` applies migrations from `supabase/migrations/`.
+### API local dev
+
+```bash
+# Start local Postgres
+podman run -d --name apxeer-db -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16
+
+# Apply migrations (requires golang-migrate: https://github.com/golang-migrate/migrate)
+migrate -path api/migrations -database "postgres://postgres:postgres@localhost:5432/apxeer?sslmode=disable" up
+
+# Run the API (copy api/.env.example to api/.env first)
+cd api && go run ./cmd/api/
+```
 
 ### Desktop-specific commands
 ```bash
@@ -52,7 +64,7 @@ cd apxeer-desktop && cargo test
 ```
 apxeer-desktop/  — Tauri 2 app (Windows only)
 apxeer-web/      — Preact + Vite web frontend (Cloudflare Workers)
-supabase/        — Edge Function (TypeScript REST API) + DB migrations
+api/             — Go REST API + DB migrations
 lmu-telemetry/   — LMU C++ headers + sample XML result files
 plans/           — SPEC.md (full product spec)
 ```
@@ -108,16 +120,19 @@ trait SimTelemetrySource {
 }
 ```
 
-### API (Supabase Edge Function)
+### API (Go)
 
-Single TypeScript function at `supabase/functions/api/index.ts`. Deployed to `https://<ref>.supabase.co/functions/v1/api`. Key endpoints:
+Go HTTP server at `api/`. Deployed to Railway. Key endpoints:
 - `POST /api/laps` — upload lap (gzip body + `X-Lap-Metadata` header)
 - `POST /api/sessions` — upload parsed XML session
 - `GET /api/compare?lap_a=:id&lap_b=:id` — fetch both laps' telemetry
+- `GET /api/me` — authenticated user's internal profile (UUID)
+
+Auth: `Authorization: Bearer <clerk_jwt>` on endpoints that require it.
 
 ### Database
 
-Supabase (Postgres). Telemetry samples are **not** stored as DB rows — they are stored as MessagePack files in Supabase Storage at `telemetry/{user_id}/{lap_id}.msgpack`. The `laps.telemetry_url` column references this file.
+Neon (Postgres). Migrations in `api/migrations/`. Telemetry samples are **not** stored as DB rows — they are stored as gzip JSON files in Cloudflare R2 at `telemetry/{clerk_user_id}/{lap_id}.json.gz`. The `laps.telemetry_url` column stores the R2 object key.
 
 ## Key Dependencies (Desktop)
 
@@ -133,10 +148,15 @@ Supabase (Postgres). Telemetry samples are **not** stored as DB rows — they ar
 Settings are persisted to `<AppData>/apxeer/config/settings.json`:
 ```json
 {
-  "api_url": "http://localhost:54321/functions/v1",
+  "api_url": "http://localhost:8080",
   "auth_token": "",
+  "user_email": "",
   "auto_upload": false,
-  "lmu_results_dir": ""
+  "lmu_results_dir": "",
+  "clerk_domain": "your-app.clerk.accounts.dev"
 }
 ```
-Default LMU results path: `Documents/Le Mans Ultimate/UserData/Log/Results`.
+- `api_url`: Go API base URL (Railway URL for prod, `http://localhost:8080` for local dev)
+- `auth_token`: Clerk JWT obtained via PKCE OAuth flow
+- `clerk_domain`: Clerk Frontend API domain from the Clerk dashboard
+- Default LMU results path: `Documents/Le Mans Ultimate/UserData/Log/Results`

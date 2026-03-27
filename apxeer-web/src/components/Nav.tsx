@@ -29,7 +29,7 @@ export function Nav() {
         {!loading && (
           user ? (
             <>
-              <span>{user.email}</span>
+              <span>{user.display_name ?? user.clerk_id}</span>
               <button onClick={signOut} class="hover:text-[var(--text)] transition-colors">
                 Sign out
               </button>

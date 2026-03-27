@@ -1,8 +1,13 @@
--- Run this in the Supabase SQL editor to bootstrap the schema.
+-- 001: Initial schema (ported from Supabase migration 20260324000000_initial.sql)
+-- Supabase-specific constructs removed:
+--   - No auth.users FK (replaced by clerk_id column)
+--   - No handle_new_user trigger
+--   - No RLS policies (enforced at API layer)
 
--- Users (extends Supabase auth.users)
+-- Users
 CREATE TABLE IF NOT EXISTS public.users (
-    id           uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    clerk_id     text UNIQUE NOT NULL,
     username     text UNIQUE,
     display_name text,
     avatar_url   text,
@@ -10,26 +15,6 @@ CREATE TABLE IF NOT EXISTS public.users (
     ingame_names text[] NOT NULL DEFAULT '{}', -- LMU driver names linked to this account
     created_at   timestamptz NOT NULL DEFAULT now()
 );
-
--- Auto-create a users row when someone signs up via Supabase Auth.
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
-BEGIN
-    INSERT INTO public.users (id, display_name, avatar_url)
-    VALUES (
-        NEW.id,
-        COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email),
-        NEW.raw_user_meta_data->>'avatar_url'
-    )
-    ON CONFLICT (id) DO NOTHING;
-    RETURN NEW;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-    AFTER INSERT ON auth.users
-    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- Tracks
 CREATE TABLE IF NOT EXISTS public.tracks (
@@ -111,21 +96,10 @@ CREATE TABLE IF NOT EXISTS public.laps (
     is_valid        bool NOT NULL DEFAULT true,
     sample_rate_hz  int NOT NULL DEFAULT 20,
     recorded_at     timestamptz NOT NULL,
-    telemetry_url   text -- path in Supabase Storage
+    telemetry_url   text -- R2 object key: telemetry/{clerk_id}/{lap_id}.json.gz
 );
 
-CREATE INDEX IF NOT EXISTS laps_user_id       ON public.laps(user_id);
-CREATE INDEX IF NOT EXISTS laps_track_id      ON public.laps(track_id);
-CREATE INDEX IF NOT EXISTS laps_car_id        ON public.laps(car_id);
-CREATE INDEX IF NOT EXISTS laps_lap_time_ms   ON public.laps(lap_time_ms);
-
--- Row Level Security: users can only read their own laps; all laps are public.
-ALTER TABLE public.laps ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "laps are publicly readable" ON public.laps FOR SELECT USING (true);
-CREATE POLICY "users insert own laps"      ON public.laps FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-ALTER TABLE public.session_results ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "session_results are publicly readable" ON public.session_results FOR SELECT USING (true);
-
-ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "sessions are publicly readable" ON public.sessions FOR SELECT USING (true);
+CREATE INDEX IF NOT EXISTS laps_user_id     ON public.laps(user_id);
+CREATE INDEX IF NOT EXISTS laps_track_id    ON public.laps(track_id);
+CREATE INDEX IF NOT EXISTS laps_car_id      ON public.laps(car_id);
+CREATE INDEX IF NOT EXISTS laps_lap_time_ms ON public.laps(lap_time_ms);

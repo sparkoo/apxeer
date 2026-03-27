@@ -1,9 +1,0 @@
-# Local secrets — never commit
-.env.local
-.env.*.local
-*.env.local
-
-# Supabase CLI generates this when running `supabase link --project-ref <ref>`.
-# It overwrites project_id in config.toml with the real project ref.
-# Do not commit the linked config — keep config.toml as a local dev template.
-# (If you run `supabase link`, make sure not to commit the resulting config.toml change.)

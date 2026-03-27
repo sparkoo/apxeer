@@ -55,8 +55,7 @@ fn detect_lmu_results_dir() -> PathBuf {
 
 // ── Auth constants ─────────────────────────────────────────────────────────────
 
-const SUPABASE_URL: &str = "https://xviegnvxvozhmsjcsadm.supabase.co";
-const SUPABASE_ANON_KEY: &str = "sb_publishable_htKKYfihafYb58YgSMdNQw_qybOL-hh";
+// The local TCP port that catches the OAuth callback from the browser.
 const OAUTH_CALLBACK_PORT: u16 = 54321;
 
 // ── Auth helpers ───────────────────────────────────────────────────────────────
@@ -83,23 +82,53 @@ fn extract_code(request_line: &str) -> Option<String> {
         .map(|p| p.trim_start_matches("code=").to_string())
 }
 
-fn exchange_pkce(code: &str, verifier: &str) -> Result<(String, String), String> {
-    let resp = ureq::post(&format!("{}/auth/v1/token?grant_type=pkce", SUPABASE_URL))
-        .set("apikey", SUPABASE_ANON_KEY)
-        .set("Content-Type", "application/json")
-        .send_json(serde_json::json!({
-            "auth_code": code,
-            "code_verifier": verifier,
-        }))
+/// Exchange the PKCE authorization code for a Clerk session token.
+/// Uses Clerk's standard OAuth 2.0 token endpoint.
+///
+/// clerk_domain: your Clerk Frontend API domain, e.g. "your-app.clerk.accounts.dev"
+/// client_id: your Clerk Publishable Key (used as OAuth client_id for native apps)
+fn exchange_pkce(
+    clerk_domain: &str,
+    client_id: &str,
+    code: &str,
+    verifier: &str,
+) -> Result<(String, String), String> {
+    let token_url = format!("https://{}/v1/oauth_token", clerk_domain);
+    let redirect_uri = format!("http://127.0.0.1:{}/", OAUTH_CALLBACK_PORT);
+
+    let resp = ureq::post(&token_url)
+        .set("Content-Type", "application/x-www-form-urlencoded")
+        .send_string(&format!(
+            "grant_type=authorization_code&client_id={}&code={}&redirect_uri={}&code_verifier={}",
+            client_id,
+            urlencoding::encode(code),
+            urlencoding::encode(&redirect_uri),
+            verifier,
+        ))
         .map_err(|e| e.to_string())?;
 
     let body: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
-    let access_token = body["access_token"].as_str().unwrap_or("").to_string();
-    let email = body["user"]["email"].as_str().unwrap_or("").to_string();
 
+    // Clerk returns the session token as access_token.
+    // The email can be extracted from the JWT claims or fetched separately.
+    let access_token = body["access_token"].as_str().unwrap_or("").to_string();
     if access_token.is_empty() {
         return Err(format!("No access_token in response: {}", body));
     }
+
+    // Attempt to extract email from the id_token or user info if present.
+    let email = body["id_token"].as_str()
+        .and_then(|tok| {
+            // Decode JWT payload (base64url middle segment) without verification.
+            let parts: Vec<&str> = tok.split('.').collect();
+            parts.get(1).and_then(|p| {
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(p).ok()
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                    .and_then(|v| v["email"].as_str().map(|s| s.to_string()))
+            })
+        })
+        .unwrap_or_default();
+
     Ok((access_token, email))
 }
 
@@ -113,6 +142,16 @@ fn login_oauth(
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     let (verifier, challenge) = pkce_pair();
+
+    let (clerk_domain, clerk_client_id) = {
+        let s = settings.lock().unwrap();
+        if s.clerk_domain.is_empty() {
+            return Err("Clerk domain not configured. Set it in Settings.".to_string());
+        }
+        // The Publishable Key is used as client_id for native PKCE flows.
+        // It must be set in settings alongside the domain.
+        (s.clerk_domain.clone(), s.auth_token.clone())
+    };
 
     let settings_clone = settings.inner().clone();
     let config_dir_path = config_dir.0.clone();
@@ -148,13 +187,13 @@ fn login_oauth(
                 drop(stream);
 
                 if let Some(code) = extract_code(&request_line) {
-                    match exchange_pkce(&code, &verifier) {
+                    match exchange_pkce(&clerk_domain, &clerk_client_id, &code, &verifier) {
                         Ok((token, email)) => {
                             let mut s = settings_clone.lock().unwrap();
                             s.auth_token = token;
                             s.user_email = email.clone();
                             s.save(&config_dir_path);
-                            eprintln!("[auth] Signed in as {}", email);
+                            eprintln!("[auth] Signed in{}", if email.is_empty() { String::new() } else { format!(" as {}", email) });
                         }
                         Err(e) => eprintln!("[auth] Token exchange failed: {}", e),
                     }
@@ -166,9 +205,17 @@ fn login_oauth(
         }
     });
 
+    // Clerk's authorization URL for native PKCE.
+    // The provider parameter maps to Clerk's OAuth strategy name (e.g. "oauth_google").
+    let strategy = format!("oauth_{}", provider);
+    let redirect_uri = format!("http://127.0.0.1:{}/", OAUTH_CALLBACK_PORT);
     let auth_url = format!(
-        "{}/auth/v1/authorize?provider={}&redirect_to=http://127.0.0.1:{}/&code_challenge={}&code_challenge_method=S256",
-        SUPABASE_URL, provider, OAUTH_CALLBACK_PORT, challenge
+        "https://{}/v1/oauth_authorize?response_type=code&client_id={}&redirect_uri={}&code_challenge={}&code_challenge_method=S256&strategy={}",
+        clerk_domain,
+        urlencoding::encode(&clerk_client_id),
+        urlencoding::encode(&redirect_uri),
+        challenge,
+        strategy,
     );
     app.opener().open_url(&auth_url, None::<&str>).map_err(|e| e.to_string())?;
 
