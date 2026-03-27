@@ -26,7 +26,7 @@ Apxeer records your lap telemetry from Le Mans Ultimate at 20Hz, uploads it to a
 | Component | Stack | Purpose |
 |-----------|-------|---------|
 | `apxeer-desktop` | Tauri 2 + Rust + HTMX | Record & upload telemetry (Windows only) |
-| `apxeer-api` | Go + chi + Supabase | Data storage & retrieval |
+| `supabase/functions/api` | TypeScript (Supabase Edge Function) | Data storage & retrieval |
 | `apxeer-web` | Preact + Vite + Tailwind | Lap comparison & analysis |
 | Database | Supabase Postgres + Storage | Schema + telemetry file storage |
 
@@ -34,25 +34,25 @@ Apxeer records your lap telemetry from Le Mans Ultimate at 20Hz, uploads it to a
 
 ### Prerequisites
 
-- Go 1.25+
 - Node 22+
-- Podman (local DB)
-- Supabase CLI (for local stack)
+- Rust + Cargo (desktop app only)
+- [Supabase CLI](https://supabase.com/docs/guides/local-development)
+- Podman or Docker (required by Supabase CLI)
 - Windows (required for desktop recording)
 
 ### Local development
 
 ```bash
-make dev        # Start DB + API + web together
-make migrate    # Run schema migrations
-make seed       # Insert sample laps with fake telemetry
+make install    # Install web frontend dependencies (first time)
+make api        # Start local Supabase (Postgres + Edge Functions)
+make db-reset   # Apply migrations from supabase/migrations/
+make web        # Start Vite dev server on port 3000
 ```
 
 ### Desktop app (Windows only)
 
 ```bash
-cd apxeer-desktop
-cargo tauri dev
+make desktop    # or: cd apxeer-desktop && cargo tauri dev
 ```
 
 See [`docs/`](docs/) for architecture, design decisions, and deployment details.
