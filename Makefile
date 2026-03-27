@@ -40,10 +40,10 @@ desktop:
 # ── API (Supabase) ────────────────────────────────────────────────────────────
 
 api:
-	supabase start
+	npx supabase start
 
 api-stop:
-	supabase stop
+	npx supabase stop
 
 db-reset:
-	supabase db reset
+	npx supabase db reset
