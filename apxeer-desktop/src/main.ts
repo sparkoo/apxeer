@@ -45,26 +45,21 @@ async function renderAuth() {
   } else {
     container.innerHTML = `
       <div class="auth-providers">
-        <button class="btn-provider" data-provider="google">Continue with Google</button>
-        <button class="btn-provider" data-provider="discord">Continue with Discord</button>
-        <button class="btn-provider" data-provider="github">Continue with GitHub</button>
+        <button class="btn-provider" id="signin-btn">Sign in</button>
       </div>
       <p class="auth-msg" id="auth-msg"></p>
     `;
-    document.querySelectorAll<HTMLButtonElement>(".btn-provider").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const provider = btn.dataset.provider!;
-        const msg = document.getElementById("auth-msg")!;
-        try {
-          const result = await invoke<string>("login_oauth", { provider });
-          msg.textContent = result;
-          if (authPollInterval === null) {
-            authPollInterval = setInterval(renderAuth, 2000);
-          }
-        } catch (e) {
-          msg.textContent = String(e);
+    document.getElementById("signin-btn")?.addEventListener("click", async () => {
+      const msg = document.getElementById("auth-msg")!;
+      try {
+        const result = await invoke<string>("login_oauth");
+        msg.textContent = result;
+        if (authPollInterval === null) {
+          authPollInterval = setInterval(renderAuth, 2000);
         }
-      });
+      } catch (e) {
+        msg.textContent = String(e);
+      }
     });
   }
 }
