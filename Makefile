@@ -3,7 +3,7 @@
 WEB_DIR  := apxeer-web
 DESK_DIR := apxeer-desktop
 
-.PHONY: help install web desktop api api-stop db-reset db-reset
+.PHONY: help install web desktop api db-migrate
 
 # ── Help ──────────────────────────────────────────────────────────────────────
 
@@ -16,11 +16,10 @@ help:
 	@echo "Run"
 	@echo "  web          Start Vite dev server (port 3000)"
 	@echo "  desktop      Start Tauri desktop app (Windows only)"
-	@echo "  api          Start local Supabase (Postgres + Edge Functions)"
-	@echo "  api-stop     Stop local Supabase"
+	@echo "  api          Start Go API on port 8080"
 	@echo ""
 	@echo "Database"
-	@echo "  db-reset     Apply migrations from supabase/migrations/ to local DB"
+	@echo "  db-migrate   Apply migrations to local Postgres (requires golang-migrate)"
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 
@@ -37,13 +36,12 @@ web:
 desktop:
 	cd $(DESK_DIR) && cargo tauri dev
 
-# ── API (Supabase) ────────────────────────────────────────────────────────────
+# ── API (Go) ──────────────────────────────────────────────────────────────────
 
 api:
-	npx supabase start
+	cd api && go run ./cmd/api/
 
-api-stop:
-	npx supabase stop
+# ── Database ──────────────────────────────────────────────────────────────────
 
-db-reset:
-	npx supabase db reset
+db-migrate:
+	migrate -path api/migrations -database "postgres://postgres:postgres@localhost:5432/apxeer?sslmode=disable" up
