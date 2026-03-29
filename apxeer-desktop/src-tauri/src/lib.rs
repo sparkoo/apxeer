@@ -156,6 +156,11 @@ fn login_oauth(
     let settings_clone = settings.inner().clone();
     let config_dir_path = config_dir.0.clone();
 
+    // Clone so these can be moved into the spawn closure while remaining
+    // available after the spawn for building the auth_url.
+    let clerk_domain_thread = clerk_domain.clone();
+    let clerk_client_id_thread = clerk_client_id.clone();
+
     std::thread::spawn(move || {
         let listener = match TcpListener::bind(format!("127.0.0.1:{}", OAUTH_CALLBACK_PORT)) {
             Ok(l) => l,
@@ -187,7 +192,7 @@ fn login_oauth(
                 drop(stream);
 
                 if let Some(code) = extract_code(&request_line) {
-                    match exchange_pkce(&clerk_domain, &clerk_client_id, &code, &verifier) {
+                    match exchange_pkce(&clerk_domain_thread, &clerk_client_id_thread, &code, &verifier) {
                         Ok((token, email)) => {
                             let mut s = settings_clone.lock().unwrap();
                             s.auth_token = token;
