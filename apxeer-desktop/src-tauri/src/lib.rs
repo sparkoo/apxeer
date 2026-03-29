@@ -93,7 +93,7 @@ fn exchange_pkce(
     code: &str,
     verifier: &str,
 ) -> Result<(String, String), String> {
-    let token_url = format!("https://{}/v1/oauth_token", clerk_domain);
+    let token_url = format!("https://{}/oauth/token", clerk_domain);
     let redirect_uri = format!("http://127.0.0.1:{}/", OAUTH_CALLBACK_PORT);
 
     let resp = ureq::post(&token_url)
@@ -218,7 +218,7 @@ fn login_oauth(
     // Users choose their social provider on Clerk's hosted sign-in page.
     let redirect_uri = format!("http://127.0.0.1:{}/", OAUTH_CALLBACK_PORT);
     let auth_url = format!(
-        "https://{}/v1/oauth_authorize?response_type=code&client_id={}&redirect_uri={}&code_challenge={}&code_challenge_method=S256&scope=profile%20email",
+        "https://{}/oauth/authorize?response_type=code&client_id={}&redirect_uri={}&code_challenge={}&code_challenge_method=S256&scope=profile%20email",
         clerk_domain,
         urlencoding::encode(&clerk_client_id),
         urlencoding::encode(&redirect_uri),
