@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 interface Settings {
   api_url: string;
   clerk_domain: string;
-  clerk_publishable_key: string;
+  clerk_oauth_client_id: string;
   auth_token: string;
   user_email: string;
   auto_upload: boolean;
@@ -73,7 +73,7 @@ async function initSettings() {
   const s: Settings = await invoke("get_settings");
   (form.elements.namedItem("api_url") as HTMLInputElement).value = s.api_url;
   (form.elements.namedItem("clerk_domain") as HTMLInputElement).value = s.clerk_domain ?? "";
-  (form.elements.namedItem("clerk_publishable_key") as HTMLInputElement).value = s.clerk_publishable_key ?? "";
+  (form.elements.namedItem("clerk_oauth_client_id") as HTMLInputElement).value = s.clerk_oauth_client_id ?? "";
   (form.elements.namedItem("lmu_results_dir") as HTMLInputElement).value = s.lmu_results_dir;
   (form.elements.namedItem("auto_upload") as HTMLInputElement).checked = s.auto_upload;
 
@@ -87,7 +87,7 @@ async function initSettings() {
         newSettings: {
           api_url: (form.elements.namedItem("api_url") as HTMLInputElement).value,
           clerk_domain: (form.elements.namedItem("clerk_domain") as HTMLInputElement).value,
-          clerk_publishable_key: (form.elements.namedItem("clerk_publishable_key") as HTMLInputElement).value,
+          clerk_oauth_client_id: (form.elements.namedItem("clerk_oauth_client_id") as HTMLInputElement).value,
           lmu_results_dir: (form.elements.namedItem("lmu_results_dir") as HTMLInputElement).value,
           auto_upload: (form.elements.namedItem("auto_upload") as HTMLInputElement).checked,
           auth_token: current.auth_token,

@@ -17,9 +17,12 @@ pub struct Settings {
     /// Set this in the app settings to match your Clerk project.
     #[serde(default)]
     pub clerk_domain: String,
-    /// Clerk Publishable Key (e.g. "pk_test_..."). Used as OAuth client_id in PKCE flow.
-    #[serde(default)]
-    pub clerk_publishable_key: String,
+    /// Clerk OAuth Application client_id (e.g. "oauth_client_...").
+    /// Create an OAuth Application in Clerk Dashboard → Configure → OAuth Applications,
+    /// add http://127.0.0.1:54321/ as a redirect URI, and paste the client_id here.
+    /// This is NOT the publishable key.
+    #[serde(default, alias = "clerk_publishable_key")]
+    pub clerk_oauth_client_id: String,
 }
 
 impl Default for Settings {
@@ -31,7 +34,7 @@ impl Default for Settings {
             auto_upload: false,
             lmu_results_dir: String::new(),
             clerk_domain: String::new(),
-            clerk_publishable_key: String::new(),
+            clerk_oauth_client_id: String::new(),
         }
     }
 }

@@ -147,11 +147,10 @@ fn login_oauth(
         if s.clerk_domain.is_empty() {
             return Err("Clerk domain not configured. Set it in Settings.".to_string());
         }
-        if s.clerk_publishable_key.is_empty() {
-            return Err("Clerk publishable key not configured. Set it in Settings.".to_string());
+        if s.clerk_oauth_client_id.is_empty() {
+            return Err("Clerk OAuth client ID not configured. Create an OAuth Application in Clerk Dashboard and paste its client_id in Settings.".to_string());
         }
-        // The Publishable Key is used as client_id for native PKCE flows.
-        (s.clerk_domain.clone(), s.clerk_publishable_key.clone())
+        (s.clerk_domain.clone(), s.clerk_oauth_client_id.clone())
     };
 
     let settings_clone = settings.inner().clone();
