@@ -96,16 +96,29 @@ fn exchange_pkce(
     let token_url = format!("https://{}/oauth/token", clerk_domain);
     let redirect_uri = format!("http://127.0.0.1:{}/", OAUTH_CALLBACK_PORT);
 
+    // URL-decode the code first to avoid double-encoding if the redirect URL
+    // percent-encoded any characters in the authorization code.
+    let decoded_code = urlencoding::decode(code)
+        .unwrap_or(std::borrow::Cow::Borrowed(code));
+
+    let req_body = format!(
+        "grant_type=authorization_code&client_id={}&code={}&redirect_uri={}&code_verifier={}",
+        urlencoding::encode(client_id),
+        urlencoding::encode(decoded_code.as_ref()),
+        urlencoding::encode(&redirect_uri),
+        urlencoding::encode(verifier),
+    );
+
     let resp = ureq::post(&token_url)
         .set("Content-Type", "application/x-www-form-urlencoded")
-        .send_string(&format!(
-            "grant_type=authorization_code&client_id={}&code={}&redirect_uri={}&code_verifier={}",
-            client_id,
-            urlencoding::encode(code),
-            urlencoding::encode(&redirect_uri),
-            verifier,
-        ))
-        .map_err(|e| e.to_string())?;
+        .send_string(&req_body)
+        .map_err(|e| match e {
+            ureq::Error::Status(status, resp) => {
+                let err_body = resp.into_string().unwrap_or_default();
+                format!("{}: status {}: {}", token_url, status, err_body)
+            }
+            other => other.to_string(),
+        })?;
 
     let body: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
 
