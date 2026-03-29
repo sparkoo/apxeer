@@ -1,4 +1,4 @@
-import { createContext } from "preact";
+import { createContext, type ComponentChildren } from "preact";
 import { useContext, useEffect, useState } from "preact/hooks";
 import { clerk } from "./clerk";
 import { api } from "./api";
@@ -28,7 +28,7 @@ const AuthCtx = createContext<AuthContext>({
   signOut: async () => {},
 });
 
-export function AuthProvider({ children }: { children: preact.ComponentChildren }) {
+export function AuthProvider({ children }: { children: ComponentChildren }) {
   const [user, setUser] = useState<InternalUser | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -42,7 +42,8 @@ export function AuthProvider({ children }: { children: preact.ComponentChildren 
       }
 
       // Listen for future auth state changes
-      clerk.addListener(({ session }) => {
+      clerk.addListener((emission) => {
+        const session = emission.session;
         if (session) {
           fetchInternalUser().then(setUser);
         } else {
