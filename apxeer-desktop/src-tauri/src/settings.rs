@@ -19,8 +19,8 @@ pub struct Settings {
     pub clerk_domain: String,
     /// Clerk OAuth Application client_id (e.g. "oauth_client_...").
     /// Create an OAuth Application in Clerk Dashboard → Configure → OAuth Applications,
-    /// add http://127.0.0.1:54321/ as a redirect URI, and paste the client_id here.
-    /// This is NOT the publishable key.
+    /// enable "Public" (no client secret), add http://127.0.0.1:54321/ as a redirect URI,
+    /// and paste the client_id here. This is NOT the publishable key.
     #[serde(default, alias = "clerk_publishable_key")]
     pub clerk_oauth_client_id: String,
 }
