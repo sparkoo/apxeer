@@ -93,7 +93,7 @@ fn exchange_pkce(
     code: &str,
     verifier: &str,
 ) -> Result<(String, String), String> {
-    let token_url = format!("https://{}/v1/oauth_token", clerk_domain);
+    let token_url = format!("https://{}/oauth/token", clerk_domain);
     let redirect_uri = format!("http://127.0.0.1:{}/", OAUTH_CALLBACK_PORT);
 
     let resp = ureq::post(&token_url)
@@ -136,7 +136,6 @@ fn exchange_pkce(
 
 #[tauri::command]
 fn login_oauth(
-    provider: String,
     settings: tauri::State<Arc<Mutex<Settings>>>,
     config_dir: tauri::State<ConfigDir>,
     app: tauri::AppHandle,
@@ -148,11 +147,10 @@ fn login_oauth(
         if s.clerk_domain.is_empty() {
             return Err("Clerk domain not configured. Set it in Settings.".to_string());
         }
-        if s.clerk_publishable_key.is_empty() {
-            return Err("Clerk publishable key not configured. Set it in Settings.".to_string());
+        if s.clerk_oauth_client_id.is_empty() {
+            return Err("Clerk OAuth client ID not configured. Create an OAuth Application in Clerk Dashboard and paste its client_id in Settings.".to_string());
         }
-        // The Publishable Key is used as client_id for native PKCE flows.
-        (s.clerk_domain.clone(), s.clerk_publishable_key.clone())
+        (s.clerk_domain.clone(), s.clerk_oauth_client_id.clone())
     };
 
     let settings_clone = settings.inner().clone();
@@ -213,16 +211,17 @@ fn login_oauth(
     });
 
     // Clerk's authorization URL for native PKCE.
-    // The provider parameter maps to Clerk's OAuth strategy name (e.g. "oauth_google").
-    let strategy = format!("oauth_{}", provider);
+    // /v1/oauth_authorize is Clerk's PKCE endpoint (Clerk as OAuth identity provider).
+    // The strategy parameter does NOT belong here — it belongs to the social sign-in
+    // custom flow (/v1/client/sign_ins) and causes a 404 on this endpoint.
+    // Users choose their social provider on Clerk's hosted sign-in page.
     let redirect_uri = format!("http://127.0.0.1:{}/", OAUTH_CALLBACK_PORT);
     let auth_url = format!(
-        "https://{}/v1/oauth_authorize?response_type=code&client_id={}&redirect_uri={}&code_challenge={}&code_challenge_method=S256&strategy={}",
+        "https://{}/oauth/authorize?response_type=code&client_id={}&redirect_uri={}&code_challenge={}&code_challenge_method=S256&scope=profile%20email",
         clerk_domain,
         urlencoding::encode(&clerk_client_id),
         urlencoding::encode(&redirect_uri),
         challenge,
-        strategy,
     );
     app.opener().open_url(&auth_url, None::<&str>).map_err(|e| e.to_string())?;
 

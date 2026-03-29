@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 interface Settings {
   api_url: string;
   clerk_domain: string;
-  clerk_publishable_key: string;
+  clerk_oauth_client_id: string;
   auth_token: string;
   user_email: string;
   auto_upload: boolean;
@@ -45,26 +45,21 @@ async function renderAuth() {
   } else {
     container.innerHTML = `
       <div class="auth-providers">
-        <button class="btn-provider" data-provider="google">Continue with Google</button>
-        <button class="btn-provider" data-provider="discord">Continue with Discord</button>
-        <button class="btn-provider" data-provider="github">Continue with GitHub</button>
+        <button class="btn-provider" id="signin-btn">Sign in</button>
       </div>
       <p class="auth-msg" id="auth-msg"></p>
     `;
-    document.querySelectorAll<HTMLButtonElement>(".btn-provider").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const provider = btn.dataset.provider!;
-        const msg = document.getElementById("auth-msg")!;
-        try {
-          const result = await invoke<string>("login_oauth", { provider });
-          msg.textContent = result;
-          if (authPollInterval === null) {
-            authPollInterval = setInterval(renderAuth, 2000);
-          }
-        } catch (e) {
-          msg.textContent = String(e);
+    document.getElementById("signin-btn")?.addEventListener("click", async () => {
+      const msg = document.getElementById("auth-msg")!;
+      try {
+        const result = await invoke<string>("login_oauth");
+        msg.textContent = result;
+        if (authPollInterval === null) {
+          authPollInterval = setInterval(renderAuth, 2000);
         }
-      });
+      } catch (e) {
+        msg.textContent = String(e);
+      }
     });
   }
 }
@@ -78,7 +73,7 @@ async function initSettings() {
   const s: Settings = await invoke("get_settings");
   (form.elements.namedItem("api_url") as HTMLInputElement).value = s.api_url;
   (form.elements.namedItem("clerk_domain") as HTMLInputElement).value = s.clerk_domain ?? "";
-  (form.elements.namedItem("clerk_publishable_key") as HTMLInputElement).value = s.clerk_publishable_key ?? "";
+  (form.elements.namedItem("clerk_oauth_client_id") as HTMLInputElement).value = s.clerk_oauth_client_id ?? "";
   (form.elements.namedItem("lmu_results_dir") as HTMLInputElement).value = s.lmu_results_dir;
   (form.elements.namedItem("auto_upload") as HTMLInputElement).checked = s.auto_upload;
 
@@ -92,7 +87,7 @@ async function initSettings() {
         newSettings: {
           api_url: (form.elements.namedItem("api_url") as HTMLInputElement).value,
           clerk_domain: (form.elements.namedItem("clerk_domain") as HTMLInputElement).value,
-          clerk_publishable_key: (form.elements.namedItem("clerk_publishable_key") as HTMLInputElement).value,
+          clerk_oauth_client_id: (form.elements.namedItem("clerk_oauth_client_id") as HTMLInputElement).value,
           lmu_results_dir: (form.elements.namedItem("lmu_results_dir") as HTMLInputElement).value,
           auto_upload: (form.elements.namedItem("auto_upload") as HTMLInputElement).checked,
           auth_token: current.auth_token,
