@@ -15,12 +15,11 @@ pub struct Settings {
     pub lmu_results_dir: String,
     /// Clerk Frontend API domain (e.g. "your-app.clerk.accounts.dev").
     /// Set this in the app settings to match your Clerk project.
-    #[serde(default = "default_clerk_domain")]
+    #[serde(default)]
     pub clerk_domain: String,
-}
-
-fn default_clerk_domain() -> String {
-    String::new()
+    /// Clerk Publishable Key (e.g. "pk_test_..."). Used as OAuth client_id in PKCE flow.
+    #[serde(default)]
+    pub clerk_publishable_key: String,
 }
 
 impl Default for Settings {
@@ -32,6 +31,7 @@ impl Default for Settings {
             auto_upload: false,
             lmu_results_dir: String::new(),
             clerk_domain: String::new(),
+            clerk_publishable_key: String::new(),
         }
     }
 }

@@ -184,8 +184,8 @@ For staging, use the stage Railway URL and stage Clerk domain instead.
 
 ## Verification Checklist
 
-- [ ] `GET https://<stage-railway-app>.railway.app/api/health` → `ok`
-- [ ] `GET https://<prod-railway-app>.railway.app/api/health` → `ok`
+- [ ] `GET https://<stage-railway-app>.railway.app/health` → `ok`
+- [ ] `GET https://<prod-railway-app>.railway.app/health` → `ok`
 - [ ] Stage web app opens at `https://apxeer-web-staging.<account>.workers.dev` and login works
 - [ ] Prod web app opens at `https://apxeer-web.<account>.workers.dev` and login works
 - [ ] Upload a lap from desktop → row appears in `laps` table, file in R2 bucket
