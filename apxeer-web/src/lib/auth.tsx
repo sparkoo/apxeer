@@ -1,68 +1,86 @@
-import { createContext } from "preact";
+import { createContext, type ComponentChildren } from "preact";
 import { useContext, useEffect, useState } from "preact/hooks";
-import type { Session, User } from "@supabase/supabase-js";
-import { supabase } from "./supabase";
+import { clerk } from "./clerk";
+import { api } from "./api";
+
+// InternalUser is the user record from our DB (fetched from /api/me on sign-in).
+// user.id is the internal UUID used for all API calls that take a user ID.
+interface InternalUser {
+  id: string;
+  clerk_id: string;
+  username: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+  role: string;
+}
 
 interface AuthContext {
-  session: Session | null;
-  user: User | null;
+  user: InternalUser | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<void>;
-  signInWithDiscord: () => Promise<void>;
-  signInWithGitHub: () => Promise<void>;
+  signIn: () => void;
   signOut: () => Promise<void>;
 }
 
 const AuthCtx = createContext<AuthContext>({
-  session: null,
   user: null,
   loading: true,
-  signInWithGoogle: async () => {},
-  signInWithDiscord: async () => {},
-  signInWithGitHub: async () => {},
+  signIn: () => {},
   signOut: async () => {},
 });
 
-export function AuthProvider({ children }: { children: preact.ComponentChildren }) {
-  const [session, setSession] = useState<Session | null>(null);
+export function AuthProvider({ children }: { children: ComponentChildren }) {
+  const [user, setUser] = useState<InternalUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoading(false);
-    });
+    clerk.load().then(() => {
+      // Set initial state from existing session
+      if (clerk.session) {
+        fetchInternalUser().then(setUser).finally(() => setLoading(false));
+      } else {
+        setLoading(false);
+      }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
+      // Listen for future auth state changes
+      clerk.addListener((emission) => {
+        const session = emission.session;
+        if (session) {
+          fetchInternalUser().then(setUser);
+        } else {
+          setUser(null);
+        }
+      });
     });
-
-    return () => subscription.unsubscribe();
   }, []);
 
-  const redirectTo = `${window.location.origin}/`;
-
-  const signInWithGoogle = async () => {
-    await supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo } });
-  };
-
-  const signInWithDiscord = async () => {
-    await supabase.auth.signInWithOAuth({ provider: "discord", options: { redirectTo } });
-  };
-
-  const signInWithGitHub = async () => {
-    await supabase.auth.signInWithOAuth({ provider: "github", options: { redirectTo } });
-  };
+  const signIn = () => clerk.openSignIn({ afterSignInUrl: "/" });
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    await clerk.signOut();
+    setUser(null);
   };
 
   return (
-    <AuthCtx.Provider value={{ session, user: session?.user ?? null, loading, signInWithGoogle, signInWithDiscord, signInWithGitHub, signOut }}>
+    <AuthCtx.Provider value={{ user, loading, signIn, signOut }}>
       {children}
     </AuthCtx.Provider>
   );
 }
 
 export const useAuth = () => useContext(AuthCtx);
+
+// fetchInternalUser calls GET /api/me to get the internal UUID.
+// This is the bridge between Clerk's user ID and our DB's UUID.
+async function fetchInternalUser(): Promise<InternalUser | null> {
+  try {
+    const token = await clerk.session?.getToken();
+    if (!token) return null;
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/api/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}

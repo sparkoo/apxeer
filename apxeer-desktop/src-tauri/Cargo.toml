@@ -29,6 +29,7 @@ ureq = { version = "2", features = ["json"] }
 base64 = "0.22"
 sha2 = "0.10"
 rand = "0.8"
+urlencoding = "2"
 time = { version = "0.3.47", features = ["macros", "formatting"] }
 winapi = { version = "0.3", features = ["everything"] }
 winreg = "0.52"

@@ -1,12 +1,12 @@
 import type { CompareData, CommunityStats, LapMetadata, Session, TrackRecord, UserSession } from "./types";
-import { supabase } from "./supabase";
+import { clerk } from "./clerk";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:54321/functions/v1";
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8080";
 
 async function authHeaders(): Promise<HeadersInit> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session?.access_token) {
-    return { Authorization: `Bearer ${session.access_token}` };
+  const token = await clerk.session?.getToken();
+  if (token) {
+    return { Authorization: `Bearer ${token}` };
   }
   return {};
 }

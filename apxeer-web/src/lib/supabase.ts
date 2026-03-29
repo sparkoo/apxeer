@@ -1,6 +1,2 @@
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// This file is intentionally empty. Supabase has been replaced by Clerk + Go API.
+// See src/lib/clerk.ts for the new auth client.
