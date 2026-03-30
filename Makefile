@@ -44,4 +44,4 @@ api:
 # ── Database ──────────────────────────────────────────────────────────────────
 
 db-migrate:
-	migrate -path api/migrations -database "postgres://postgres:postgres@localhost:5432/apxeer?sslmode=disable" up
+	migrate -path api/migrations -database "$${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/apxeer?sslmode=disable}" up
