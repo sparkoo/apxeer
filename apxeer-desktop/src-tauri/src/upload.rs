@@ -1,3 +1,4 @@
+use base64::Engine;
 use crate::settings::Settings;
 use crate::telemetry::LapMetadata;
 use flate2::read::GzDecoder;
