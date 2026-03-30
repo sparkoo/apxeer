@@ -176,7 +176,7 @@ func (h *LapHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	recordedAt, err := time.Parse(time.RFC3339, meta.RecordedAt)
+	recordedAt, err := time.Parse(time.RFC3339Nano, meta.RecordedAt)
 	if err != nil {
 		http.Error(w, "invalid recorded_at timestamp", http.StatusBadRequest)
 		return
