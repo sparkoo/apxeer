@@ -7,7 +7,8 @@ import (
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/sparkoo/apxeer/api/migrations"
 )
 
 func main() {
@@ -20,7 +21,12 @@ func main() {
 	dbURL = strings.Replace(dbURL, "postgresql://", "pgx5://", 1)
 	dbURL = strings.Replace(dbURL, "postgres://", "pgx5://", 1)
 
-	m, err := migrate.New("file://migrations", dbURL)
+	src, err := iofs.New(migrations.FS, ".")
+	if err != nil {
+		log.Fatalf("migrate source: %v", err)
+	}
+
+	m, err := migrate.NewWithSourceInstance("iofs", src, dbURL)
 	if err != nil {
 		log.Fatalf("migrate init: %v", err)
 	}
