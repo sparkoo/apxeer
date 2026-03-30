@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sparkoo/apxeer/api/internal/db"
+	"github.com/sparkoo/apxeer/api/internal/middleware"
 )
 
 type SessionHandler struct {
@@ -183,6 +184,7 @@ func (h *SessionHandler) Create(w http.ResponseWriter, r *http.Request) {
 		CarClass      string   `json:"car_class"`
 		CarNumber     string   `json:"car_number"`
 		TeamName      string   `json:"team_name"`
+		IsPlayer      bool     `json:"is_player"`
 		IsConnected   bool     `json:"is_connected"`
 		GridPos       *int     `json:"grid_pos"`
 		ClassGridPos  *int     `json:"class_grid_pos"`
@@ -233,6 +235,7 @@ func (h *SessionHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	pool := h.DB.Pool
+	callerID := middleware.UserIDFromCtx(ctx)
 
 	// Upsert track (with layout)
 	var trackID uuid.UUID
@@ -304,14 +307,33 @@ func (h *SessionHandler) Create(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// Try to link ingame name to a registered user account
+			// Link driver to a user account.
+			// If this is the player who uploaded the session, use their authenticated
+			// ID directly, update ingame_names for future matching, and retroactively
+			// link any historical session_results with the same ingame name.
 			var driverUserID *uuid.UUID
-			var uid uuid.UUID
-			if err := pool.QueryRow(ctx,
-				`SELECT id FROM users WHERE $1 = ANY(ingame_names) LIMIT 1`,
-				d.Name,
-			).Scan(&uid); err == nil {
-				driverUserID = &uid
+			if d.IsPlayer && callerID != uuid.Nil {
+				driverUserID = &callerID
+				// Add ingame name to user's profile (idempotent).
+				pool.Exec(ctx, `
+					UPDATE users
+					SET ingame_names = array_append(ingame_names, $1)
+					WHERE id = $2 AND NOT ($1 = ANY(ingame_names))
+				`, d.Name, callerID)
+				// Retroactively link unowned historical results for this driver name.
+				pool.Exec(ctx, `
+					UPDATE session_results
+					SET user_id = $2
+					WHERE ingame_name = $1 AND user_id IS NULL
+				`, d.Name, callerID)
+			} else {
+				var uid uuid.UUID
+				if err := pool.QueryRow(ctx,
+					`SELECT id FROM users WHERE $1 = ANY(ingame_names) LIMIT 1`,
+					d.Name,
+				).Scan(&uid); err == nil {
+					driverUserID = &uid
+				}
 			}
 
 			var resultID uuid.UUID
