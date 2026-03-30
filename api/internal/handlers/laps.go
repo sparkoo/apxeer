@@ -185,12 +185,13 @@ func (h *LapHandler) Create(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	pool := h.DB.Pool
 
-	// Upsert track
+	// Upsert track — targets the partial index tracks_name_null_layout
+	// (layout is not available from desktop telemetry, so we insert with layout = NULL).
 	var trackID uuid.UUID
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO tracks (id, name, length_m)
 		VALUES (gen_random_uuid(), $1, 0)
-		ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+		ON CONFLICT (name) WHERE layout IS NULL DO UPDATE SET name = EXCLUDED.name
 		RETURNING id
 	`, meta.TrackName).Scan(&trackID); err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
