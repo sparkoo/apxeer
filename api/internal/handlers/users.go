@@ -92,7 +92,14 @@ func (h *UserHandler) Sessions(w http.ResponseWriter, r *http.Request) {
 		       t.name AS track_name, t.length_m,
 		       sr.finish_pos, sr.class_pos, sr.best_lap_ms,
 		       sr.laps_completed, sr.finish_status,
-		       c.name AS car_name, c.class AS car_class
+		       c.name AS car_name, c.class AS car_class,
+		       ARRAY(
+		         SELECT DISTINCT c2.class
+		         FROM session_results sr2
+		         JOIN cars c2 ON c2.id = sr2.car_id
+		         WHERE sr2.session_id = s.id
+		         ORDER BY 1
+		       ) AS car_classes
 		FROM session_results sr
 		JOIN sessions s ON s.id = sr.session_id
 		JOIN tracks   t ON t.id = s.track_id
@@ -130,6 +137,7 @@ func (h *UserHandler) Sessions(w http.ResponseWriter, r *http.Request) {
 		DurationMin int       `json:"duration_min"`
 		Track       track     `json:"track"`
 		MyResult    myResult  `json:"my_result"`
+		CarClasses  []string  `json:"car_classes"`
 	}
 
 	result := []userSession{}
@@ -145,6 +153,7 @@ func (h *UserHandler) Sessions(w http.ResponseWriter, r *http.Request) {
 			&mr.FinishPos, &mr.ClassPos, &mr.BestLapMs,
 			&mr.LapsCompleted, &mr.FinishStatus,
 			&mr.CarName, &mr.CarClass,
+			&s.CarClasses,
 		); err != nil {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return

@@ -109,6 +109,7 @@ export interface UserResult {
 
 export interface UserSession extends Session {
   my_result: UserResult;
+  car_classes: string[];
 }
 
 // Lap comparison data returned by GET /api/compare
