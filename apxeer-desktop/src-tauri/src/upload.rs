@@ -144,7 +144,7 @@ fn upload_lap(path: &Path, settings: &Settings) -> Result<(), UploadError> {
 
     let meta_json = serde_json::to_string(&lap_file.metadata)
         .map_err(|e| UploadError::Parse(e.to_string()))?;
-    let meta_b64 = base64::engine::general_purpose::STANDARD.encode(&meta_json);
+    let meta_b64 = base64::engine::general_purpose::STANDARD.encode(meta_json.as_bytes());
 
     let url = format!("{}/api/laps", settings.api_url);
     let resp = ureq::post(&url)
