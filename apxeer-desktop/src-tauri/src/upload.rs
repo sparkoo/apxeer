@@ -144,12 +144,13 @@ fn upload_lap(path: &Path, settings: &Settings) -> Result<(), UploadError> {
 
     let meta_json = serde_json::to_string(&lap_file.metadata)
         .map_err(|e| UploadError::Parse(e.to_string()))?;
+    let meta_b64 = base64::engine::general_purpose::STANDARD.encode(&meta_json);
 
     let url = format!("{}/api/laps", settings.api_url);
     let resp = ureq::post(&url)
         .set("Authorization", &format!("Bearer {}", settings.auth_token))
         .set("Content-Type", "application/gzip")
-        .set("X-Lap-Metadata", &meta_json)
+        .set("X-Lap-Metadata", &meta_b64)
         .send_bytes(&compressed)
         .map_err(|e| UploadError::Http(e.to_string()))?;
 
