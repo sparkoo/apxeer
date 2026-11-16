@@ -82,25 +82,35 @@ impl Drop for EventHandle {
     }
 }
 
-struct UpdateGate {
-    hold: EventHandle,
-    data: EventHandle,
+enum UpdateGate {
+    Sequenced {
+        hold: EventHandle,
+        data: EventHandle,
+    },
+    Legacy(EventHandle),
 }
 
 impl UpdateGate {
-    fn open() -> Result<Option<Self>, String> {
+    fn open() -> Result<Self, String> {
         let hold = EventHandle::open(LMU_HOLD_EVENT_NAME)?;
         let data = EventHandle::open(LMU_DATA_EVENT_NAME)?;
         match (hold, data) {
-            (Some(hold), Some(data)) => Ok(Some(Self { hold, data })),
-            (None, None) if EventHandle::open(LMU_LEGACY_EVENT_NAME)?.is_some() => Ok(None),
+            (Some(hold), Some(data)) => Ok(Self::Sequenced { hold, data }),
+            (None, None) => EventHandle::open(LMU_LEGACY_EVENT_NAME)?
+                .map(Self::Legacy)
+                .ok_or_else(|| "LMU shared memory update events are unavailable".into()),
             _ => Err("LMU shared memory update gate is incomplete".into()),
         }
     }
 
     fn wait_for_next_frame(&self, deadline: Instant) -> Result<bool, String> {
-        // The SDK requires Hold to be observed before waiting for Data.
-        Ok(self.hold.wait_until(deadline)? && self.data.wait_until(deadline)?)
+        match self {
+            // The SDK requires Hold to be observed before waiting for Data.
+            Self::Sequenced { hold, data } => {
+                Ok(hold.wait_until(deadline)? && data.wait_until(deadline)?)
+            }
+            Self::Legacy(event) => event.wait_until(deadline),
+        }
     }
 }
 
@@ -242,7 +252,7 @@ pub fn read_telemetry() -> Result<Box<SharedMemoryObjectOut>, String> {
 pub struct SharedMemoryReader {
     map_handle: HANDLE,
     view_ptr: *const SharedMemoryLayout,
-    update_gate: Option<UpdateGate>,
+    update_gate: UpdateGate,
     lock: SharedMemoryLock,
 }
 
@@ -252,7 +262,7 @@ unsafe impl Send for SharedMemoryReader {}
 
 impl SharedMemoryReader {
     /// Open LMU's shared mapping and update events. Older versions exposing
-    /// the legacy event use polling under the same shared memory lock.
+    /// the legacy event wait for that event before taking the shared lock.
     pub fn open() -> Result<Self, String> {
         let update_gate = UpdateGate::open()?;
         let lock = SharedMemoryLock::new()?;
@@ -308,10 +318,8 @@ impl SharedMemoryReader {
     }
 
     fn read_until(&self, deadline: Instant) -> Result<Option<Box<SharedMemoryObjectOut>>, String> {
-        if let Some(gate) = &self.update_gate {
-            if !gate.wait_for_next_frame(deadline)? {
-                return Ok(None);
-            }
+        if !self.update_gate.wait_for_next_frame(deadline)? {
+            return Ok(None);
         }
 
         let mut out = Box::<SharedMemoryObjectOut>::new_uninit();
@@ -353,22 +361,34 @@ mod synchronization_tests {
 
     #[test]
     fn update_gate_waits_for_hold_before_consuming_data() {
-        let gate = UpdateGate {
-            hold: unnamed_event(),
-            data: unnamed_event(),
+        let hold = unnamed_event();
+        let data = unnamed_event();
+        signal(&data);
+        let gate = UpdateGate::Sequenced { hold, data };
+        let UpdateGate::Sequenced { hold, data } = &gate else {
+            unreachable!();
         };
 
-        signal(&gate.data);
         assert!(!gate.wait_for_next_frame(Instant::now()).unwrap());
 
-        signal(&gate.hold);
+        signal(hold);
         assert!(gate.wait_for_next_frame(Instant::now()).unwrap());
 
-        signal(&gate.hold);
+        signal(hold);
         assert!(!gate.wait_for_next_frame(Instant::now()).unwrap());
 
         // A timeout on Data restarts the sequence at Hold.
-        signal(&gate.data);
+        signal(data);
+        assert!(!gate.wait_for_next_frame(Instant::now()).unwrap());
+    }
+
+    #[test]
+    fn legacy_gate_requires_a_signal_for_each_snapshot() {
+        let event = unnamed_event();
+        signal(&event);
+        let gate = UpdateGate::Legacy(event);
+
+        assert!(gate.wait_for_next_frame(Instant::now()).unwrap());
         assert!(!gate.wait_for_next_frame(Instant::now()).unwrap());
     }
 
@@ -725,7 +745,7 @@ mod integration_tests {
     #[test]
     fn read_shared_memory() {
         let snapshot = SharedMemoryReader::open().and_then(|reader| {
-            let uses_event_queue = reader.update_gate.is_some();
+            let uses_event_queue = matches!(reader.update_gate, UpdateGate::Sequenced { .. });
             reader
                 .read_diagnostic()
                 .map(|data| (data, uses_event_queue))

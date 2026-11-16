@@ -48,8 +48,8 @@ The shared memory reader mirrors the layouts in the LMU SDK. On builds with
 the frame events, it waits for `LMU_Data_HoldEvent` followed by
 `LMU_Data_DataEvent`, then copies a snapshot under the shared lock. The recorder
 skips a sample when the wait times out and periodically reopens the mapping
-during extended idle periods to release stale handles after LMU exits. Older
-builds that expose the original `LMU_Data_Event` use locked polling.
+during extended idle periods to release stale handles after LMU exits. On older
+builds, the reader waits for `LMU_Data_Event` before taking the same lock.
 
 ## Auth Flow
 
