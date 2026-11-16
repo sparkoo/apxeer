@@ -1,5 +1,7 @@
 # Apxeer — Product Specification & Architecture
 
+> Original product specification. See the [architecture guide](../docs/architecture.md) for the current implementation.
+
 ## 1. Overview
 
 Apxeer is a simracing community platform. Drivers record their lap telemetry via a desktop app, upload it to a shared backend, and compare laps with other drivers on the web — overlaid on a track map with full telemetry graphs and delta analysis. A secondary feature provides rich race session stats parsed from LMU's XML result files.

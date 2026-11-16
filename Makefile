@@ -14,7 +14,7 @@ help:
 	@echo "  install      Install web frontend dependencies"
 	@echo ""
 	@echo "Run"
-	@echo "  web          Start Vite dev server (port 3000)"
+	@echo "  web          Start Vite dev server (port 5173)"
 	@echo "  desktop      Start Tauri desktop app (Windows only)"
 	@echo "  api          Start Go API on port 8080"
 	@echo ""

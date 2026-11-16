@@ -56,7 +56,7 @@ Telemetry records only the player's car, not opponents.
 
 Telemetry and results are written to local `.json.gz` files first, then uploaded. On success the local file is deleted.
 
-**Why:** Decouples recording from network availability. Laps are never lost due to upload failures.
+**Why:** Decouples recording from network availability. The desktop keeps queued files when the API reports an upload failure, so they can be retried.
 
 ---
 
