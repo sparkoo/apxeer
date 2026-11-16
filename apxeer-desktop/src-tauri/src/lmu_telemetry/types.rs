@@ -3,8 +3,8 @@
 
 // Rust translations of the LMU C++ shared memory structs.
 //
-// All structs use `#[repr(C, packed(4))]` to match the C++ `#pragma pack(push, 4)` directive
-// used in InternalsPlugin.hpp and PluginObjects.hpp.
+// SDK structs in InternalsPlugin.hpp use four-byte packing. The wrappers in
+// SharedMemoryInterface.hpp are declared after the SDK restores default packing.
 //
 // Type mapping:
 //   C++ `long`               → `i32`  (Windows long is always 32-bit)
@@ -46,7 +46,7 @@ pub struct TelemQuat {
 
 /// Per-wheel telemetry data.
 ///
-/// C++ size: 232 bytes (with pack(4)).
+/// C++ size: 260 bytes (with pack(4)).
 #[repr(C, packed(4))]
 #[derive(Copy, Clone)]
 pub struct TelemWheelV01 {
@@ -89,7 +89,10 @@ pub struct TelemWheelV01 {
     pub mTireCarcassTemperature: f64,
     pub mTireInnerLayerTemperature: [f64; 3],
 
-    pub mExpansion: [u8; 24],
+    pub mOptimalTemp: f32,
+    pub mCompoundIndex: u8,
+    pub mCompoundType: u8,
+    pub mExpansion: [u8; 18],
 }
 
 impl Default for TelemWheelV01 {
@@ -105,7 +108,7 @@ impl Default for TelemWheelV01 {
 
 /// Full telemetry for one vehicle.
 ///
-/// C++ size: ~1408 bytes (with pack(4)).
+/// C++ size: 1888 bytes (with pack(4)).
 #[repr(C, packed(4))]
 #[derive(Copy, Clone)]
 pub struct TelemInfoV01 {
@@ -208,8 +211,43 @@ pub struct TelemInfoV01 {
     pub mElectricBoostWaterTemperature: f64,
     pub mElectricBoostMotorState: u8,
 
-    /// Future use: 111-8 = 103 bytes
-    pub mExpansion: [u8; 103],
+    pub mLapInvalidated: u8,
+    pub mABSActive: u8,
+    pub mTCActive: u8,
+    pub mSpeedLimiterActive: u8,
+    pub mWiperState: u8,
+    pub mTC: u8,
+    pub mTCMax: u8,
+    pub mTCSlip: u8,
+    pub mTCSlipMax: u8,
+    pub mTCCut: u8,
+    pub mTCCutMax: u8,
+    pub mABS: u8,
+    pub mABSMax: u8,
+    pub mMotorMap: u8,
+    pub mMotorMapMax: u8,
+    pub mMigration: u8,
+    pub mMigrationMax: u8,
+    pub mFrontAntiSway: u8,
+    pub mFrontAntiSwayMax: u8,
+    pub mRearAntiSway: u8,
+    pub mRearAntiSwayMax: u8,
+    pub mLiftAndCoastProgress: u8,
+    pub mTrackLimitsSteps: u8,
+    /// Regeneration power in kW.
+    pub mRegen: f32,
+    pub mSoC: f32,
+    pub mVirtualEnergy: f32,
+    pub mTimeGapCarAhead: f32,
+    pub mTimeGapCarBehind: f32,
+    pub mTimeGapPlaceAhead: f32,
+    pub mTimeGapPlaceBehind: f32,
+    pub mVehicleModel: [u8; 30],
+    /// Raw SDK `IP_VehicleClass` value.
+    pub mVehicleClass: u8,
+    /// Raw SDK `IP_VehicleChampionship` value.
+    pub mVehicleChampionship: u8,
+    pub mExpansion: [u8; 20],
 
     // Wheel info: front-left, front-right, rear-left, rear-right
     pub mWheel: [TelemWheelV01; 4],
@@ -227,7 +265,7 @@ impl Default for TelemInfoV01 {
 
 /// Per-vehicle scoring information.
 ///
-/// C++ size: ~392 bytes (with pack(4)).
+/// C++ size: 584 bytes (with pack(4)).
 #[repr(C, packed(4))]
 #[derive(Copy, Clone)]
 pub struct VehicleScoringInfoV01 {
@@ -323,7 +361,7 @@ impl Default for VehicleScoringInfoV01 {
 /// C++ struct layout. These are never dereferenced from Rust — they exist only to
 /// maintain correct byte offsets for subsequent fields.
 ///
-/// C++ size: ~784 bytes (with pack(4)).
+/// C++ size on 64-bit Windows: 548 bytes (with pack(4)).
 #[repr(C, packed(4))]
 pub struct ScoringInfoV01 {
     pub mTrackName: [u8; 64],
@@ -366,11 +404,14 @@ pub struct ScoringInfoV01 {
 
     pub mAvgPathWetness: f64,
 
-    pub mExpansion: [u8; 200],
-
-    /// 4 bytes of padding: MSVC keeps pointer alignment at 8 bytes even with
-    /// #pragma pack(4) on 64-bit Windows, so there is implicit padding before mVehicle.
-    pub _pad_before_vehicle: [u8; 4],
+    pub mSessionTimeRemaining: f32,
+    pub mTimeOfDay: f32,
+    pub mIsFixedSetup: u8,
+    pub mTrackGripLevel: u8,
+    pub mCloudCoverage: u8,
+    pub mTrackLimitsStepsPerPenalty: u8,
+    pub mTrackLimitsStepsPerPoint: u8,
+    pub mExpansion: [u8; 187],
 
     /// Raw pointer — do not dereference from Rust (points into shared memory)
     pub mVehicle: *mut VehicleScoringInfoV01,
@@ -424,7 +465,7 @@ unsafe impl Sync for ApplicationStateV01 {}
 // Shared memory event enum
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Shared memory event indices (matches C++ `SharedMemoryEvent` enum).
+/// Shared memory event codes (matches C++ `SharedMemoryEvent` enum).
 pub mod shared_memory_event {
     pub const SME_ENTER: usize = 0;
     pub const SME_EXIT: usize = 1;
@@ -453,9 +494,9 @@ pub mod shared_memory_event {
 ///
 /// Note: `long` in C++ on Windows is 32-bit → `i32`.
 /// `SharedMemoryEvent` enum values are `uint32_t` → `u32`.
-#[repr(C, packed(4))]
+#[repr(C)]
 pub struct SharedMemoryGeneric {
-    /// Event flags array — index with `shared_memory_event::SME_*` constants
+    /// Queue of event codes, with capacity `SME_MAX`.
     pub events: [u32; shared_memory_event::SME_MAX],
     pub gameVersion: i32,
     pub FFBTorque: f32,
@@ -472,7 +513,7 @@ unsafe impl Send for SharedMemoryGeneric {}
 unsafe impl Sync for SharedMemoryGeneric {}
 
 /// Path data (5 × MAX_PATH = 5 × 260 bytes = 1300 bytes).
-#[repr(C, packed(4))]
+#[repr(C)]
 #[derive(Copy, Clone)]
 pub struct SharedMemoryPathData {
     pub userData: [u8; 260],
@@ -489,7 +530,7 @@ impl Default for SharedMemoryPathData {
 }
 
 /// Scoring data including up to 104 vehicles and a results stream buffer.
-#[repr(C, packed(4))]
+#[repr(C)]
 pub struct SharedMemoryScoringData {
     pub scoringInfo: ScoringInfoV01,
     pub scoringStreamSize: usize,
@@ -508,17 +549,15 @@ unsafe impl Send for SharedMemoryScoringData {}
 unsafe impl Sync for SharedMemoryScoringData {}
 
 /// Telemetry data for up to 104 vehicles.
-///
-/// Note: C++ spelling is "Telemtry" (typo preserved from original header).
-#[repr(C, packed(4))]
-pub struct SharedMemoryTelemtryData {
+#[repr(C)]
+pub struct SharedMemoryTelemetryData {
     pub active_vehicles: u8,
     pub player_vehicle_idx: u8,
     pub player_has_vehicle: u8,
     pub telem_info: [TelemInfoV01; 104],
 }
 
-impl Default for SharedMemoryTelemtryData {
+impl Default for SharedMemoryTelemetryData {
     fn default() -> Self {
         unsafe { core::mem::zeroed() }
     }
@@ -526,13 +565,13 @@ impl Default for SharedMemoryTelemtryData {
 
 /// Top-level shared memory object containing all data sections.
 ///
-/// This is a very large struct (~190 KB+). Always heap-allocate with `Box`.
-#[repr(C, packed(4))]
+/// This is a very large struct (~317 KiB). Always heap-allocate with `Box`.
+#[repr(C)]
 pub struct SharedMemoryObjectOut {
     pub generic: SharedMemoryGeneric,
     pub paths: SharedMemoryPathData,
     pub scoring: SharedMemoryScoringData,
-    pub telemetry: SharedMemoryTelemtryData,
+    pub telemetry: SharedMemoryTelemetryData,
 }
 
 impl Default for SharedMemoryObjectOut {
@@ -545,7 +584,7 @@ unsafe impl Send for SharedMemoryObjectOut {}
 unsafe impl Sync for SharedMemoryObjectOut {}
 
 /// The shared memory layout — a thin wrapper around `SharedMemoryObjectOut`.
-#[repr(C, packed(4))]
+#[repr(C)]
 pub struct SharedMemoryLayout {
     pub data: SharedMemoryObjectOut,
 }
@@ -560,13 +599,13 @@ unsafe impl Send for SharedMemoryLayout {}
 unsafe impl Sync for SharedMemoryLayout {}
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Compile-time size assertions
+// ABI layout tests
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod size_tests {
     use super::*;
-    use core::mem::size_of;
+    use core::mem::{align_of, offset_of, size_of};
 
     #[test]
     fn telem_vect3_size() {
@@ -579,15 +618,23 @@ mod size_tests {
     }
 
     #[test]
-    fn telem_wheel_size() {
-        // With pack(4), total layout:
-        // 5+9+2+3+1 doubles = 20×8=160, [u8;16]=16, 4×u8=4, 3+1+3 doubles=7×8=56, [u8;24]=24
-        // = 160+16+4+56+24 = 260 bytes
-        assert_eq!(
-            size_of::<TelemWheelV01>(),
-            260,
-            "TelemWheelV01 must be 260 bytes"
-        );
+    fn wheel_and_vehicle_telemetry_layout() {
+        assert_eq!(size_of::<TelemWheelV01>(), 260);
+        assert_eq!(offset_of!(TelemWheelV01, mOptimalTemp), 236);
+        assert_eq!(offset_of!(TelemWheelV01, mCompoundIndex), 240);
+        assert_eq!(offset_of!(TelemWheelV01, mCompoundType), 241);
+        assert_eq!(offset_of!(TelemWheelV01, mExpansion), 242);
+
+        assert_eq!(size_of::<TelemInfoV01>(), 1888);
+        assert_eq!(offset_of!(TelemInfoV01, mLapInvalidated), 745);
+        assert_eq!(offset_of!(TelemInfoV01, mTrackLimitsSteps), 767);
+        assert_eq!(offset_of!(TelemInfoV01, mRegen), 768);
+        assert_eq!(offset_of!(TelemInfoV01, mVirtualEnergy), 776);
+        assert_eq!(offset_of!(TelemInfoV01, mVehicleModel), 796);
+        assert_eq!(offset_of!(TelemInfoV01, mVehicleClass), 826);
+        assert_eq!(offset_of!(TelemInfoV01, mVehicleChampionship), 827);
+        assert_eq!(offset_of!(TelemInfoV01, mExpansion), 828);
+        assert_eq!(offset_of!(TelemInfoV01, mWheel), 848);
     }
 
     #[test]
@@ -610,55 +657,33 @@ mod size_tests {
     }
 
     #[test]
-    fn print_key_struct_sizes() {
-        // Print sizes so we can compare with C++ output
-        println!(
-            "TelemVect3              = {} bytes",
-            size_of::<TelemVect3>()
-        );
-        println!(
-            "TelemWheelV01           = {} bytes",
-            size_of::<TelemWheelV01>()
-        );
-        println!(
-            "TelemInfoV01            = {} bytes",
-            size_of::<TelemInfoV01>()
-        );
-        println!(
-            "VehicleScoringInfoV01   = {} bytes",
-            size_of::<VehicleScoringInfoV01>()
-        );
-        println!(
-            "ScoringInfoV01          = {} bytes",
-            size_of::<ScoringInfoV01>()
-        );
-        println!(
-            "ApplicationStateV01     = {} bytes",
-            size_of::<ApplicationStateV01>()
-        );
-        println!(
-            "SharedMemoryGeneric     = {} bytes",
-            size_of::<SharedMemoryGeneric>()
-        );
-        println!(
-            "SharedMemoryPathData    = {} bytes",
-            size_of::<SharedMemoryPathData>()
-        );
-        println!(
-            "SharedMemoryScoringData = {} bytes",
-            size_of::<SharedMemoryScoringData>()
-        );
-        println!(
-            "SharedMemoryTelemtryData= {} bytes",
-            size_of::<SharedMemoryTelemtryData>()
-        );
-        println!(
-            "SharedMemoryObjectOut   = {} bytes",
-            size_of::<SharedMemoryObjectOut>()
-        );
-        println!(
-            "SharedMemoryLayout      = {} bytes",
-            size_of::<SharedMemoryLayout>()
-        );
+    fn scoring_layout() {
+        assert_eq!(size_of::<VehicleScoringInfoV01>(), 584);
+        assert_eq!(size_of::<ScoringInfoV01>(), 548);
+        assert_eq!(offset_of!(ScoringInfoV01, mNumVehicles), 104);
+        assert_eq!(offset_of!(ScoringInfoV01, mSessionTimeRemaining), 340);
+        assert_eq!(offset_of!(ScoringInfoV01, mTrackLimitsStepsPerPoint), 352);
+        assert_eq!(offset_of!(ScoringInfoV01, mExpansion), 353);
+        assert_eq!(offset_of!(ScoringInfoV01, mVehicle), 540);
+    }
+
+    #[test]
+    fn shared_memory_layout() {
+        // Sizes and offsets from the SDK headers compiled with x64 MSVC.
+        assert_eq!(size_of::<SharedMemoryGeneric>(), 332);
+        assert_eq!(size_of::<SharedMemoryScoringData>(), 126832);
+        assert_eq!(offset_of!(SharedMemoryScoringData, scoringStreamSize), 552);
+        assert_eq!(offset_of!(SharedMemoryScoringData, vehScoringInfo), 560);
+        assert_eq!(offset_of!(SharedMemoryScoringData, scoringStream), 61296);
+        assert_eq!(size_of::<SharedMemoryTelemetryData>(), 196356);
+        assert_eq!(offset_of!(SharedMemoryTelemetryData, telem_info), 4);
+
+        assert_eq!(align_of::<SharedMemoryLayout>(), 8);
+        assert_eq!(size_of::<SharedMemoryLayout>(), 324824);
+        assert_eq!(offset_of!(SharedMemoryLayout, data), 0);
+        assert_eq!(size_of::<SharedMemoryObjectOut>(), 324824);
+        assert_eq!(offset_of!(SharedMemoryObjectOut, paths), 332);
+        assert_eq!(offset_of!(SharedMemoryObjectOut, scoring), 1632);
+        assert_eq!(offset_of!(SharedMemoryObjectOut, telemetry), 128464);
     }
 }

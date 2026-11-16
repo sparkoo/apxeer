@@ -127,31 +127,48 @@ pub fn start(buffer_dir: PathBuf, state: Arc<Mutex<RecorderState>>, live: Arc<Li
 
 fn run_loop(buffer_dir: &Path, state: &Arc<Mutex<RecorderState>>, live: &LiveTelemetry) {
     const POLL_INTERVAL: Duration = Duration::from_millis(50); // 20 Hz
+    const REOPEN_AFTER: Duration = Duration::from_secs(1);
 
     let mut reader: Option<SharedMemoryReader> = None;
+    let mut next_poll = Instant::now();
+    let mut last_frame = next_poll;
     let mut current_lap: i32 = -1;
     let mut samples: Vec<TelemetrySample> = Vec::new();
 
     loop {
-        thread::sleep(POLL_INTERVAL);
+        thread::sleep(next_poll.saturating_duration_since(Instant::now()));
+        next_poll = Instant::now() + POLL_INTERVAL;
 
         // Try to connect (or reconnect) to LMU shared memory.
         if reader.is_none() {
             match SharedMemoryReader::open() {
                 Ok(r) => {
-                    eprintln!("[telemetry] Connected to LMU shared memory");
+                    last_frame = Instant::now();
                     reader = Some(r);
                 }
                 Err(_) => {
                     live.clear();
+                    current_lap = -1;
+                    samples.clear();
                     set_state(state, RecorderStatus::LmuNotRunning, -1, count_pending(buffer_dir));
                     continue;
                 }
             }
         }
 
-        let data = match reader.as_ref().unwrap().read() {
-            Ok(d) => d,
+        let data = match reader.as_ref().unwrap().read_next() {
+            Ok(Some(data)) => {
+                last_frame = Instant::now();
+                data
+            }
+            Ok(None) => {
+                // Release our handles so Windows can remove the named objects
+                // if LMU has exited. An idle game will still own its handles.
+                if last_frame.elapsed() >= REOPEN_AFTER {
+                    reader = None;
+                }
+                continue;
+            }
             Err(e) => {
                 live.clear();
                 eprintln!("[telemetry] Read error, disconnecting: {}", e);

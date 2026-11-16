@@ -18,67 +18,170 @@ pub mod types;
 
 pub use types::*;
 
+use std::ffi::CStr;
 use std::mem::size_of;
 use std::ptr;
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::time::{Duration, Instant};
 
 use winapi::shared::minwindef::FALSE;
-use winapi::shared::winerror::ERROR_ALREADY_EXISTS;
+use winapi::shared::winerror::{ERROR_FILE_NOT_FOUND, WAIT_TIMEOUT};
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
 use winapi::um::memoryapi::{
     MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_ALL_ACCESS, FILE_MAP_READ,
 };
-use winapi::um::synchapi::{CreateEventA, SetEvent, WaitForSingleObject};
-use winapi::um::winbase::{CreateFileMappingA, INFINITE};
-use winapi::um::winnt::{HANDLE, PAGE_READWRITE};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared memory names
-// ─────────────────────────────────────────────────────────────────────────────
+use winapi::um::synchapi::{CreateEventA, OpenEventA, SetEvent, WaitForSingleObject};
+use winapi::um::winbase::{CreateFileMappingA, WAIT_FAILED, WAIT_OBJECT_0};
+use winapi::um::winnt::{HANDLE, PAGE_READWRITE, SYNCHRONIZE};
 
 const LMU_SHARED_MEMORY_FILE: &str = "LMU_Data";
-const LMU_LOCK_DATA_NAME: &[u8] = b"LMU_SharedMemoryLockData\0";
-const LMU_LOCK_EVENT_NAME: &[u8] = b"LMU_SharedMemoryLockEvent\0";
+const LMU_LOCK_DATA_NAME: &CStr = c"LMU_SharedMemoryLockData";
+const LMU_LOCK_EVENT_NAME: &CStr = c"LMU_SharedMemoryLockEvent";
+const LMU_HOLD_EVENT_NAME: &CStr = c"LMU_Data_HoldEvent";
+const LMU_DATA_EVENT_NAME: &CStr = c"LMU_Data_DataEvent";
+const LMU_LEGACY_EVENT_NAME: &CStr = c"LMU_Data_Event";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SharedMemoryLock — mirrors the C++ SharedMemoryLock class
-// ─────────────────────────────────────────────────────────────────────────────
+struct EventHandle(HANDLE);
 
-/// Internal lock data layout in the `LMU_SharedMemoryLockData` mapping.
-/// Uses AtomicI32 to match the C++ `volatile LONG` fields.
+impl EventHandle {
+    fn open(name: &CStr) -> Result<Option<Self>, String> {
+        unsafe {
+            let handle = OpenEventA(SYNCHRONIZE, FALSE, name.as_ptr());
+            if !handle.is_null() {
+                return Ok(Some(Self(handle)));
+            }
+
+            match GetLastError() {
+                ERROR_FILE_NOT_FOUND => Ok(None),
+                error => Err(format!(
+                    "OpenEventA({}) failed: {error}",
+                    name.to_string_lossy()
+                )),
+            }
+        }
+    }
+
+    fn wait_until(&self, deadline: Instant) -> Result<bool, String> {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let millis = remaining.as_nanos().div_ceil(1_000_000) as u32;
+        unsafe {
+            match WaitForSingleObject(self.0, millis) {
+                WAIT_OBJECT_0 => Ok(true),
+                WAIT_TIMEOUT => Ok(false),
+                WAIT_FAILED => Err(format!("WaitForSingleObject failed: {}", GetLastError())),
+                status => Err(format!("Unexpected WaitForSingleObject status: {status}")),
+            }
+        }
+    }
+}
+
+impl Drop for EventHandle {
+    fn drop(&mut self) {
+        unsafe { CloseHandle(self.0) };
+    }
+}
+
+enum UpdateGate {
+    Sequenced {
+        hold: EventHandle,
+        data: EventHandle,
+    },
+    Legacy(EventHandle),
+}
+
+impl UpdateGate {
+    fn open() -> Result<Self, String> {
+        let hold = EventHandle::open(LMU_HOLD_EVENT_NAME)?;
+        let data = EventHandle::open(LMU_DATA_EVENT_NAME)?;
+        match (hold, data) {
+            (Some(hold), Some(data)) => Ok(Self::Sequenced { hold, data }),
+            (None, None) => EventHandle::open(LMU_LEGACY_EVENT_NAME)?
+                .map(Self::Legacy)
+                .ok_or_else(|| "LMU shared memory update events are unavailable".into()),
+            _ => Err("LMU shared memory update gate is incomplete".into()),
+        }
+    }
+
+    fn wait_for_next_frame(&self, deadline: Instant) -> Result<bool, String> {
+        match self {
+            // The SDK requires Hold to be observed before waiting for Data.
+            Self::Sequenced { hold, data } => {
+                Ok(hold.wait_until(deadline)? && data.wait_until(deadline)?)
+            }
+            Self::Legacy(event) => event.wait_until(deadline),
+        }
+    }
+}
+
+/// Layout of the two interlocked Windows LONGs in LMU_SharedMemoryLockData.
 #[repr(C)]
 struct LockData {
     waiters: AtomicI32,
     busy: AtomicI32,
 }
 
-/// A lock backed by a Windows shared memory region and event, matching the C++
-/// `SharedMemoryLock` implementation in `SharedMemoryInterface.hpp`.
-///
-/// Acquire with [`SharedMemoryLock::lock`] and release with [`SharedMemoryLock::unlock`].
-pub struct SharedMemoryLock {
+/// Attempts to acquire the SDK lock by spinning first, then waiting for release.
+fn acquire_lock(data: &LockData, event: &EventHandle, deadline: Instant) -> Result<bool, String> {
+    const MAX_SPINS: usize = 4000;
+    let try_acquire = || {
+        data.busy
+            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    };
+
+    for _ in 0..MAX_SPINS {
+        if try_acquire() {
+            return Ok(true);
+        }
+        std::hint::spin_loop();
+    }
+
+    data.waiters.fetch_add(1, Ordering::SeqCst);
+    let acquired = loop {
+        if try_acquire() {
+            break Ok(true);
+        }
+        if Instant::now() >= deadline {
+            break Ok(false);
+        }
+
+        match event.wait_until(deadline) {
+            Ok(true) => continue,
+            timeout_or_error => break timeout_or_error,
+        }
+    };
+    data.waiters.fetch_sub(1, Ordering::SeqCst);
+    acquired
+}
+
+struct SharedMemoryLock {
     map_handle: HANDLE,
-    wait_event_handle: HANDLE,
+    wait_event: EventHandle,
     data_ptr: *mut LockData,
 }
 
-// SAFETY: The raw pointers are only used within the lock/unlock methods which
-// are guarded by the Windows synchronization primitives.
-unsafe impl Send for SharedMemoryLock {}
-unsafe impl Sync for SharedMemoryLock {}
-
 impl SharedMemoryLock {
-    /// Open (or create) the shared lock. Returns `Err` if any Windows API call fails.
-    pub fn new() -> Result<Self, String> {
+    fn new() -> Result<Self, String> {
         unsafe {
+            let wait_event =
+                CreateEventA(ptr::null_mut(), FALSE, FALSE, LMU_LOCK_EVENT_NAME.as_ptr());
+            if wait_event.is_null() {
+                return Err(format!(
+                    "CreateEventA(LMU_SharedMemoryLockEvent) failed: {}",
+                    GetLastError()
+                ));
+            }
+            let wait_event = EventHandle(wait_event);
+
+            // Windows initializes new page-file-backed mappings to zero.
             let map_handle = CreateFileMappingA(
                 INVALID_HANDLE_VALUE,
                 ptr::null_mut(),
                 PAGE_READWRITE,
                 0,
                 size_of::<LockData>() as u32,
-                LMU_LOCK_DATA_NAME.as_ptr() as *const i8,
+                LMU_LOCK_DATA_NAME.as_ptr(),
             );
             if map_handle.is_null() {
                 return Err(format!(
@@ -87,94 +190,31 @@ impl SharedMemoryLock {
                 ));
             }
 
-            // Check if we just created it (vs. opened existing)
-            let just_created = GetLastError() != ERROR_ALREADY_EXISTS;
-
             let data_ptr =
                 MapViewOfFile(map_handle, FILE_MAP_ALL_ACCESS, 0, 0, size_of::<LockData>())
                     as *mut LockData;
-
             if data_ptr.is_null() {
+                let error = GetLastError();
                 CloseHandle(map_handle);
                 return Err(format!(
-                    "MapViewOfFile(LMU_SharedMemoryLockData) failed: {}",
-                    GetLastError()
+                    "MapViewOfFile(LMU_SharedMemoryLockData) failed: {error}"
                 ));
             }
 
-            // Only reset if we just created the mapping (not if it already existed)
-            if just_created {
-                (*data_ptr).waiters.store(0, Ordering::SeqCst);
-                (*data_ptr).busy.store(0, Ordering::SeqCst);
-            }
-
-            let wait_event_handle = CreateEventA(
-                ptr::null_mut(),
-                FALSE,
-                FALSE,
-                LMU_LOCK_EVENT_NAME.as_ptr() as *const i8,
-            );
-            if wait_event_handle.is_null() {
-                UnmapViewOfFile(data_ptr as _);
-                CloseHandle(map_handle);
-                return Err(format!(
-                    "CreateEventA(LMU_SharedMemoryLockEvent) failed: {}",
-                    GetLastError()
-                ));
-            }
-
-            Ok(SharedMemoryLock {
+            Ok(Self {
                 map_handle,
-                wait_event_handle,
+                wait_event,
                 data_ptr,
             })
         }
     }
 
-    /// Acquire the lock. Spins up to 4000 times, then falls back to waiting on the event.
-    pub fn lock(&self) {
-        const MAX_SPINS: i32 = 4000;
-        unsafe {
-            let busy = &(*self.data_ptr).busy;
-
-            // Fast path: spin
-            for _ in 0..MAX_SPINS {
-                // Atomic compare-exchange: if busy == 0, set to 1 and return
-                if busy
-                    .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
-                    .is_ok()
-                {
-                    return;
-                }
-                // CPU pause hint (equivalent to YieldProcessor())
-                core::hint::spin_loop();
-            }
-
-            // Slow path: register as waiter and wait on event
-            let waiters = &(*self.data_ptr).waiters;
-            waiters.fetch_add(1, Ordering::SeqCst);
-            loop {
-                if busy
-                    .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
-                    .is_ok()
-                {
-                    waiters.fetch_sub(1, Ordering::SeqCst);
-                    return;
-                }
-                WaitForSingleObject(self.wait_event_handle, INFINITE);
-            }
-        }
-    }
-
-    /// Release the lock and signal any waiters.
-    pub fn unlock(&self) {
-        unsafe {
-            let busy = &(*self.data_ptr).busy;
-            let waiters = &(*self.data_ptr).waiters;
-            busy.store(0, Ordering::Release);
-            if waiters.load(Ordering::SeqCst) > 0 {
-                SetEvent(self.wait_event_handle);
-            }
+    fn lock_until(&self, deadline: Instant) -> Result<Option<SharedMemoryGuard<'_>>, String> {
+        let data = unsafe { &*self.data_ptr };
+        if acquire_lock(data, &self.wait_event, deadline)? {
+            Ok(Some(SharedMemoryGuard(self)))
+        } else {
+            Ok(None)
         }
     }
 }
@@ -182,140 +222,53 @@ impl SharedMemoryLock {
 impl Drop for SharedMemoryLock {
     fn drop(&mut self) {
         unsafe {
-            if !self.wait_event_handle.is_null() {
-                CloseHandle(self.wait_event_handle);
-            }
-            if !self.data_ptr.is_null() {
-                UnmapViewOfFile(self.data_ptr as _);
-            }
-            if !self.map_handle.is_null() {
-                CloseHandle(self.map_handle);
+            UnmapViewOfFile(self.data_ptr as _);
+            CloseHandle(self.map_handle);
+        }
+    }
+}
+
+struct SharedMemoryGuard<'a>(&'a SharedMemoryLock);
+
+impl Drop for SharedMemoryGuard<'_> {
+    fn drop(&mut self) {
+        unsafe {
+            let data = &*self.0.data_ptr;
+            data.busy.store(0, Ordering::SeqCst);
+            if data.waiters.load(Ordering::SeqCst) > 0 {
+                SetEvent(self.0.wait_event.0);
             }
         }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// read_telemetry — one-shot shared memory read
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Read the current LMU telemetry from the `LMU_Data` shared memory file.
-///
-/// Opens the mapping, acquires the shared lock, copies the data with
-/// `ptr::copy_nonoverlapping`, releases the lock, and closes the mapping.
-///
-/// Returns a heap-allocated [`SharedMemoryObjectOut`] to avoid stack overflow
-/// (the struct is ~190 KB).
-///
-/// # Errors
-///
-/// Returns `Err` if the shared memory file is not available (i.e. LMU is not
-/// running) or if any Windows API call fails.
+/// Read one locked snapshot from LMU for diagnostics.
 #[allow(dead_code)]
 pub fn read_telemetry() -> Result<Box<SharedMemoryObjectOut>, String> {
-    // Convert the name to a wide (UTF-16) string for OpenFileMappingW
-    let wide_name: Vec<u16> = LMU_SHARED_MEMORY_FILE
-        .encode_utf16()
-        .chain(std::iter::once(0u16))
-        .collect();
-
-    unsafe {
-        // Open the file mapping (read-only is sufficient for consumers)
-        let map_handle = OpenFileMappingW(FILE_MAP_READ, FALSE, wide_name.as_ptr());
-        if map_handle.is_null() {
-            return Err(format!(
-                "OpenFileMappingW('{}') failed: {}. Is LMU running?",
-                LMU_SHARED_MEMORY_FILE,
-                GetLastError()
-            ));
-        }
-
-        // Map a view of the entire SharedMemoryLayout
-        let view_ptr = MapViewOfFile(
-            map_handle,
-            FILE_MAP_READ,
-            0,
-            0,
-            size_of::<SharedMemoryLayout>(),
-        ) as *const SharedMemoryLayout;
-
-        if view_ptr.is_null() {
-            CloseHandle(map_handle);
-            return Err(format!(
-                "MapViewOfFile('{}') failed: {}",
-                LMU_SHARED_MEMORY_FILE,
-                GetLastError()
-            ));
-        }
-
-        // Acquire the shared lock to avoid reading torn data.
-        // If we can't get the lock (e.g. LMU hasn't initialized it yet), we
-        // still read — the data may be slightly inconsistent but won't crash.
-        let lock_result = SharedMemoryLock::new();
-        if let Ok(ref lock) = lock_result {
-            lock.lock();
-        }
-
-        // Heap-allocate the destination to avoid ~190 KB stack usage
-        let mut out = Box::<SharedMemoryObjectOut>::default();
-
-        // Copy from the memory-mapped region into our owned buffer
-        ptr::copy_nonoverlapping(
-            &(*view_ptr).data as *const SharedMemoryObjectOut,
-            out.as_mut() as *mut SharedMemoryObjectOut,
-            1,
-        );
-
-        if let Ok(ref lock) = lock_result {
-            lock.unlock();
-        }
-
-        // Clean up
-        UnmapViewOfFile(view_ptr as _);
-        CloseHandle(map_handle);
-
-        Ok(out)
-    }
+    SharedMemoryReader::open()?.read_diagnostic()
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SharedMemoryReader — persistent reader for high-frequency polling
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// A persistent shared memory reader that keeps the mapping open between reads.
-///
-/// More efficient than [`read_telemetry`] when reading multiple times per second,
-/// because it avoids the overhead of `OpenFileMappingW`/`MapViewOfFile`/`CloseHandle`
-/// on every call.
-///
-/// # Example
-///
-/// ```text
-/// let reader = SharedMemoryReader::open().unwrap();
-/// loop {
-///     let data = reader.read().unwrap();
-///     // process data...
-///     std::thread::sleep(std::time::Duration::from_millis(16)); // ~60 Hz
-/// }
-/// ```
-#[allow(dead_code)]
+/// Keeps the shared mapping and synchronization handles open between reads.
 pub struct SharedMemoryReader {
     map_handle: HANDLE,
     view_ptr: *const SharedMemoryLayout,
-    lock: Option<SharedMemoryLock>,
+    update_gate: UpdateGate,
+    lock: SharedMemoryLock,
 }
 
-// SAFETY: The raw pointers are only used in `read()` which is guarded by the lock.
+// SAFETY: The reader owns the mapping and event handles. Shared data is copied
+// while holding the interprocess lock.
 unsafe impl Send for SharedMemoryReader {}
-unsafe impl Sync for SharedMemoryReader {}
 
-#[allow(dead_code)]
 impl SharedMemoryReader {
-    /// Open the `LMU_Data` shared memory mapping. Returns `Err` if LMU is not running.
+    /// Open LMU's shared mapping and update events. Older versions exposing
+    /// the legacy event wait for that event before taking the shared lock.
     pub fn open() -> Result<Self, String> {
+        let update_gate = UpdateGate::open()?;
+        let lock = SharedMemoryLock::new()?;
         let wide_name: Vec<u16> = LMU_SHARED_MEMORY_FILE
             .encode_utf16()
-            .chain(std::iter::once(0u16))
+            .chain(std::iter::once(0))
             .collect();
 
         unsafe {
@@ -335,48 +288,50 @@ impl SharedMemoryReader {
                 0,
                 size_of::<SharedMemoryLayout>(),
             ) as *const SharedMemoryLayout;
-
             if view_ptr.is_null() {
+                let error = GetLastError();
                 CloseHandle(map_handle);
                 return Err(format!(
-                    "MapViewOfFile('{}') failed: {}",
-                    LMU_SHARED_MEMORY_FILE,
-                    GetLastError()
+                    "MapViewOfFile('{}') failed: {error}",
+                    LMU_SHARED_MEMORY_FILE
                 ));
             }
 
-            let lock = SharedMemoryLock::new().ok();
-
-            Ok(SharedMemoryReader {
+            Ok(Self {
                 map_handle,
                 view_ptr,
+                update_gate,
                 lock,
             })
         }
     }
 
-    /// Read the current telemetry data. Acquires the lock, copies the data, releases the lock.
-    ///
-    /// Returns a heap-allocated copy to avoid stack overflow.
-    pub fn read(&self) -> Result<Box<SharedMemoryObjectOut>, String> {
+    /// Read a locked snapshot. A timeout on the gate or the shared lock
+    /// returns Ok(None) so callers can skip this sample.
+    pub fn read_next(&self) -> Result<Option<Box<SharedMemoryObjectOut>>, String> {
+        self.read_until(Instant::now() + Duration::from_millis(20))
+    }
+
+    fn read_diagnostic(&self) -> Result<Box<SharedMemoryObjectOut>, String> {
+        self.read_until(Instant::now() + Duration::from_millis(200))?
+            .ok_or_else(|| "Timed out waiting for an LMU shared memory snapshot".into())
+    }
+
+    fn read_until(&self, deadline: Instant) -> Result<Option<Box<SharedMemoryObjectOut>>, String> {
+        if !self.update_gate.wait_for_next_frame(deadline)? {
+            return Ok(None);
+        }
+
+        let mut out = Box::<SharedMemoryObjectOut>::new_uninit();
+        let Some(_guard) = self.lock.lock_until(deadline)? else {
+            return Ok(None);
+        };
+
+        // Readers can miss notifications for individual sections at their own
+        // sampling cadence. Copy a complete snapshot under the lock.
         unsafe {
-            if let Some(ref lock) = self.lock {
-                lock.lock();
-            }
-
-            let mut out = Box::<SharedMemoryObjectOut>::default();
-
-            ptr::copy_nonoverlapping(
-                &(*self.view_ptr).data as *const SharedMemoryObjectOut,
-                out.as_mut() as *mut SharedMemoryObjectOut,
-                1,
-            );
-
-            if let Some(ref lock) = self.lock {
-                lock.unlock();
-            }
-
-            Ok(out)
+            ptr::copy_nonoverlapping(ptr::addr_of!((*self.view_ptr).data), out.as_mut_ptr(), 1);
+            Ok(Some(out.assume_init()))
         }
     }
 }
@@ -384,13 +339,77 @@ impl SharedMemoryReader {
 impl Drop for SharedMemoryReader {
     fn drop(&mut self) {
         unsafe {
-            if !self.view_ptr.is_null() {
-                UnmapViewOfFile(self.view_ptr as _);
-            }
-            if !self.map_handle.is_null() {
-                CloseHandle(self.map_handle);
-            }
+            UnmapViewOfFile(self.view_ptr as _);
+            CloseHandle(self.map_handle);
         }
+    }
+}
+
+#[cfg(test)]
+mod synchronization_tests {
+    use super::*;
+
+    fn unnamed_event() -> EventHandle {
+        let handle = unsafe { CreateEventA(ptr::null_mut(), FALSE, FALSE, ptr::null()) };
+        assert!(!handle.is_null());
+        EventHandle(handle)
+    }
+
+    fn signal(event: &EventHandle) {
+        assert_ne!(unsafe { SetEvent(event.0) }, FALSE);
+    }
+
+    #[test]
+    fn update_gate_waits_for_hold_before_consuming_data() {
+        let hold = unnamed_event();
+        let data = unnamed_event();
+        signal(&data);
+        let gate = UpdateGate::Sequenced { hold, data };
+        let UpdateGate::Sequenced { hold, data } = &gate else {
+            unreachable!();
+        };
+
+        assert!(!gate.wait_for_next_frame(Instant::now()).unwrap());
+
+        signal(hold);
+        assert!(gate.wait_for_next_frame(Instant::now()).unwrap());
+
+        signal(hold);
+        assert!(!gate.wait_for_next_frame(Instant::now()).unwrap());
+
+        // A timeout on Data restarts the sequence at Hold.
+        signal(data);
+        assert!(!gate.wait_for_next_frame(Instant::now()).unwrap());
+    }
+
+    #[test]
+    fn legacy_gate_requires_a_signal_for_each_snapshot() {
+        let event = unnamed_event();
+        signal(&event);
+        let gate = UpdateGate::Legacy(event);
+
+        assert!(gate.wait_for_next_frame(Instant::now()).unwrap());
+        assert!(!gate.wait_for_next_frame(Instant::now()).unwrap());
+    }
+
+    #[test]
+    fn lock_retries_a_wake_and_unregisters_after_timeout() {
+        let data = LockData {
+            waiters: AtomicI32::new(0),
+            busy: AtomicI32::new(1),
+        };
+        let event = unnamed_event();
+
+        // A stale wake does not grant the still-held lock.
+        signal(&event);
+        assert!(!acquire_lock(&data, &event, Instant::now() + Duration::from_millis(20)).unwrap());
+        assert!(!event.wait_until(Instant::now()).unwrap());
+        assert_eq!(data.waiters.load(Ordering::SeqCst), 0);
+        assert_eq!(data.busy.load(Ordering::SeqCst), 1);
+
+        data.busy.store(0, Ordering::SeqCst);
+        assert!(acquire_lock(&data, &event, Instant::now()).unwrap());
+        assert_eq!(data.busy.load(Ordering::SeqCst), 1);
     }
 }
 
@@ -725,8 +744,14 @@ mod integration_tests {
     /// LMU must be running for this test to succeed.
     #[test]
     fn read_shared_memory() {
-        let data = match read_telemetry() {
-            Ok(d) => d,
+        let snapshot = SharedMemoryReader::open().and_then(|reader| {
+            let uses_event_queue = matches!(reader.update_gate, UpdateGate::Sequenced { .. });
+            reader
+                .read_diagnostic()
+                .map(|data| (data, uses_event_queue))
+        });
+        let (data, uses_event_queue) = match snapshot {
+            Ok(snapshot) => snapshot,
             Err(e) => {
                 println!("WARNING: Could not read shared memory: {}", e);
                 println!("         Make sure Le Mans Ultimate is running.");
@@ -757,10 +782,22 @@ mod integration_tests {
             "SET_ENVIRONMENT",
             "FFB",
         ];
-        println!("  Events (non-zero only):");
-        for (i, name) in event_names.iter().enumerate() {
-            if data.generic.events[i] != 0 {
-                println!("    [{}] SME_{} = {}", i, name, data.generic.events[i]);
+        if uses_event_queue {
+            println!("  Events (queue):");
+            for (i, event) in data.generic.events.into_iter().enumerate() {
+                if let Some(name) = event_names.get(event as usize) {
+                    println!("    [{i}] SME_{name}");
+                } else if event as usize != shared_memory_event::SME_MAX {
+                    println!("    [{i}] Unknown event {event}");
+                }
+            }
+        } else {
+            println!("  Events (legacy flags):");
+            for (i, name) in event_names.iter().enumerate() {
+                let flag = data.generic.events[i];
+                if flag != 0 {
+                    println!("    [{i}] SME_{name} = {flag}");
+                }
             }
         }
 
@@ -856,7 +893,7 @@ mod integration_tests {
         // ── Telemetry ────────────────────────────────────────────────────────
         let active = data.telemetry.active_vehicles as usize;
         let player_idx = data.telemetry.player_vehicle_idx as usize;
-        println!("\n=== SharedMemoryTelemtryData ===");
+        println!("\n=== SharedMemoryTelemetryData ===");
         println!("  activeVehicles  : {}", active);
         println!("  playerVehicleIdx: {}", player_idx);
         println!(
@@ -988,8 +1025,8 @@ mod integration_tests {
             size_of::<TelemInfoV01>()
         );
         println!(
-            "  SharedMemoryTelemtryData= {} bytes",
-            size_of::<SharedMemoryTelemtryData>()
+            "  SharedMemoryTelemetryData= {} bytes",
+            size_of::<SharedMemoryTelemetryData>()
         );
         println!(
             "  SharedMemoryObjectOut   = {} bytes",
@@ -998,9 +1035,9 @@ mod integration_tests {
 
         println!("\n=== Field Offsets in SharedMemoryObjectOut ===");
         println!("  .generic  @ offset 0");
-        let off_paths = size_of::<SharedMemoryGeneric>();
-        let off_scoring = off_paths + size_of::<SharedMemoryPathData>();
-        let off_telemetry = off_scoring + size_of::<SharedMemoryScoringData>();
+        let off_paths = offset_of!(SharedMemoryObjectOut, paths);
+        let off_scoring = offset_of!(SharedMemoryObjectOut, scoring);
+        let off_telemetry = offset_of!(SharedMemoryObjectOut, telemetry);
         println!("  .paths    @ offset {}", off_paths);
         println!("  .scoring  @ offset {}", off_scoring);
         println!("  .telemetry@ offset {}", off_telemetry);
@@ -1016,7 +1053,7 @@ mod integration_tests {
         // Print the first 32 bytes of the telemetry section as hex
         // to see what's actually there
         println!("\n=== Raw bytes at telemetry offset (first 32 bytes) ===");
-        let raw_ptr = &data.telemetry as *const SharedMemoryTelemtryData as *const u8;
+        let raw_ptr = &data.telemetry as *const SharedMemoryTelemetryData as *const u8;
         let raw_bytes: Vec<u8> = unsafe { std::slice::from_raw_parts(raw_ptr, 32).to_vec() };
         print!("  hex: ");
         for b in &raw_bytes {
@@ -1030,7 +1067,7 @@ mod integration_tests {
         println!("\n=== Scanning for non-zero bytes after scoring section ===");
         let obj_ptr = &*data as *const SharedMemoryObjectOut as *const u8;
         let obj_size = size_of::<SharedMemoryObjectOut>();
-        let scan_start = off_scoring + size_of::<ScoringInfoV01>() + 8; // skip scoringInfo + scoringStreamSize
+        let scan_start = off_scoring + offset_of!(SharedMemoryScoringData, vehScoringInfo);
         let mut found_nonzero = false;
         for offset in (scan_start..obj_size).step_by(4) {
             let val = unsafe { *(obj_ptr.add(offset) as *const u32) };
