@@ -65,11 +65,7 @@ Do this once before CI/CD can run.
 - `apxeer-stage`
 - `apxeer-prod`
 
-**Apply migrations** to each:
-```bash
-migrate -path api/migrations \
-  -database "postgres://<user>:<pass>@<host>/<db>?sslmode=require" up
-```
+Railway applies the embedded migrations before each API deployment.
 
 ### Step 2: Clerk
 
@@ -99,7 +95,7 @@ Enable the OAuth providers you want (Google, Discord, GitHub) in each app.
 - `apxeer-stage`
 - `apxeer-prod`
 
-In each project, connect the GitHub repo and set the source to the `api/` directory (or use a Dockerfile).
+In each project, connect the GitHub repo and set the source to the `api/` directory. The Railway config builds the API and migrator, runs the migrator before deployment, and checks `/health`.
 
 **Set environment variables** for each Railway project:
 ```
@@ -138,47 +134,14 @@ Settings → Environments → (create `stage` and `prod`) → add secrets per en
 
 ## Local Development
 
-```bash
-# 1. Start local Postgres
-podman run -d --name apxeer-db \
-  -e POSTGRES_PASSWORD=postgres \
-  -p 5432:5432 postgres:16
-
-# 2. Apply migrations (requires golang-migrate)
-#    https://github.com/golang-migrate/migrate
-make db-migrate
-
-# 3. Configure the Go API
-cd api && cp .env.example .env
-# Edit .env: set DATABASE_URL, CLERK_JWKS_URL, R2_* credentials
-
-# 4. Start the Go API (port 8080)
-make api
-
-# 5. Start the web frontend (in another terminal)
-cd apxeer-web && cp .env.example .env.local
-# Edit .env.local: set VITE_CLERK_PUBLISHABLE_KEY (use Test key)
-make web
-```
-
-Local URLs:
-- Web: `http://localhost:3000`
-- API: `http://localhost:8080`
-
----
+Follow the [local setup](../README.md#local-development) to run Postgres, the API, and the web app.
 
 ## Desktop App
 
-In the desktop app Settings UI (or `<AppData>/apxeer/config/settings.json`), set:
-```json
-{
-  "api_url": "https://<prod-railway-app>.railway.app",
-  "clerk_domain": "your-app.clerk.accounts.dev",
-  "lmu_results_dir": "C:\\Users\\<name>\\Documents\\Le Mans Ultimate\\UserData\\Log\\Results"
-}
-```
-
-For staging, use the stage Railway URL and stage Clerk domain instead.
+Set the API URL, Clerk domain, and OAuth client ID in the desktop app's
+Settings. Use values from the same environment. See the
+[desktop setup](../apxeer-desktop/README.md#configure-the-recorder) for the public
+OAuth application, loopback redirect, and LMU results directory.
 
 ---
 

@@ -30,33 +30,35 @@ Apxeer records your lap telemetry from Le Mans Ultimate at 20Hz, uploads it to a
 | `apxeer-web` | Preact + Vite + Tailwind | Lap comparison & analysis |
 | Database | Neon (Postgres) + Cloudflare R2 | Schema + telemetry file storage |
 
-## Getting Started
+## Local development
 
-### Prerequisites
+Install Node.js 22+, Go 1.24+, and Docker or Podman. See the
+[desktop guide](apxeer-desktop/README.md) for the Windows recorder.
 
-- Node 22+
-- Go 1.22+ (API)
-- Rust + Cargo (desktop app only)
-- Podman or Docker (local Postgres)
-- [golang-migrate](https://github.com/golang-migrate/migrate) (DB migrations)
-- Windows (required for desktop recording)
+1. Start Postgres. Substitute `podman` for `docker` if needed.
 
-### Local development
+   ```sh
+   docker run -d --name apxeer-db -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=apxeer -p 5432:5432 postgres:16
+   ```
 
-```bash
-make install     # Install web frontend dependencies (first time)
-make api         # Start Go API on port 8080
-make db-migrate  # Apply migrations to local Postgres
-make web         # Start Vite dev server on port 3000
-```
+2. Copy `api/.env.example` to `api/.env` and configure the Clerk JWKS URL
+   and R2 credentials. From `api/`, set `DATABASE_URL` in your shell to
+   the value in `.env` and run:
 
-### Desktop app (Windows only)
+   ```sh
+   go run ./cmd/migrate
+   go run ./cmd/api
+   ```
 
-```bash
-make desktop    # or: cd apxeer-desktop && cargo tauri dev
-```
+   In PowerShell, use `$env:DATABASE_URL = 'postgres://postgres:postgres@localhost:5432/apxeer?sslmode=disable'`.
+   The migrator reads the shell environment. The API also loads `.env`.
+   Verify startup at <http://localhost:8080/health>.
 
-See [`docs/`](docs/) for architecture, design decisions, and deployment details.
+3. Copy `apxeer-web/.env.example` to `apxeer-web/.env.local` and set the Clerk
+   publishable key for the same instance as the API. From `apxeer-web/`,
+   run `npm ci` and `npm run dev`. Open <http://localhost:5173>.
+
+See the [architecture](docs/architecture.md) and [deployment](docs/deployment.md) guides.
 
 ## License
 

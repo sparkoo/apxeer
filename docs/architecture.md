@@ -11,7 +11,7 @@ apxeer-desktop/  — Tauri 2 app (Windows only)
 api/             — Go REST API
 apxeer-web/      — Preact + Vite web frontend (Cloudflare Workers)
 lmu-telemetry/   — LMU C++ headers + sample XML result files
-plans/           — SPEC.md (full spec) + lmu-shared-memory-rust.md
+plans/           — SPEC.md (original product spec)
 docs/            — Architecture and design documentation (this folder)
 ```
 
@@ -27,27 +27,13 @@ docs/            — Architecture and design documentation (this folder)
 | File storage | Cloudflare R2 (S3-compatible) |
 | Web hosting | Cloudflare Workers (static assets) |
 
-## Local Dev Quick-Start
-
-```bash
-# 1. Postgres
-podman run -d --name apxeer-db -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16
-
-# 2. Apply migrations
-migrate -path api/migrations -database "postgres://postgres:postgres@localhost:5432/apxeer?sslmode=disable" up
-
-# 3. Go API (copy api/.env.example to api/.env and fill in values)
-cd api && go run ./cmd/api/
-
-# 4. Web frontend (copy apxeer-web/.env.example to apxeer-web/.env.local)
-cd apxeer-web && npm run dev
-```
+Follow the [local setup](../README.md#local-development) to run Postgres, the API, and the web app.
 
 ## Data Flow
 
-1. **Telemetry recording** — `telemetry.rs` reads `LMU_Data` Windows shared memory at 20Hz, detects lap boundaries, writes `{timestamp}-lap-{n}.json.gz` to `<AppData>/apxeer/buffer/`
-2. **Results parsing** — `results.rs` polls the LMU XML results folder every 5s, parses session XML, writes `{filename}.json.gz` to `<AppData>/apxeer/results/`
-3. **Upload** — `upload.rs` reads both buffer folders, POSTs lap files to `POST /api/laps` (gzip body + `X-Lap-Metadata` header) and session files to `POST /api/sessions`; deletes local file on success. Runs every 30s or on manual trigger.
+1. **Telemetry recording** — `telemetry.rs` reads `LMU_Data` Windows shared memory at 20Hz, detects lap boundaries, writes `{timestamp}-lap-{n}.json.gz` to `<Tauri app data directory>/buffer/`
+2. **Results parsing** — `results.rs` polls the LMU XML results folder every 5s, parses session XML, writes `{filename}.json.gz` to `<Tauri app data directory>/results/`
+3. **Upload** — `upload.rs` reads both buffer folders, POSTs lap files to `POST /api/laps` (gzip body + base64-encoded JSON in `X-Lap-Metadata`) and decompresses session files before sending them as JSON to `POST /api/sessions`; deletes local file on success. Runs every 30s or on manual trigger.
 4. **Blob storage** — API stores telemetry as gzip JSON files in Cloudflare R2 at `telemetry/{clerk_user_id}/{lap_id}.json.gz`; the `laps.telemetry_url` DB column stores the R2 object key. Telemetry samples are **not** stored as DB rows.
 5. **Compare** — Web frontend fetches `GET /api/compare?lap_a=:id&lap_b=:id`, API downloads both blobs from R2, decompresses them, and returns both sample arrays for the frontend to render.
 
@@ -88,7 +74,7 @@ cd apxeer-web && npm run dev
 | `GET` | `/api/stats` | No | Global stats (total laps, drivers, km) |
 | `GET` | `/api/tracks/records` | No | Best lap per track |
 | `GET` | `/api/laps` | No | List laps (filter: `user_id`, `track_id`) |
-| `POST` | `/api/laps` | Yes | Upload lap (gzip body + `X-Lap-Metadata` header) |
+| `POST` | `/api/laps` | Yes | Upload lap (gzip body + base64-encoded JSON in `X-Lap-Metadata`) |
 | `GET` | `/api/laps/:id` | No | Single lap with joins |
 | `GET` | `/api/compare` | No | Fetch telemetry for two laps (`?lap_a=:id&lap_b=:id`) |
 | `GET` | `/api/sessions` | No | List recent sessions |
