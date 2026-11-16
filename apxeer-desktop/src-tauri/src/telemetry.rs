@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 // ── Types written to disk ─────────────────────────────────────────────────────
@@ -48,6 +48,39 @@ pub struct RecordedLap {
     pub samples: Vec<TelemetrySample>,
 }
 
+#[derive(Clone, Copy, Serialize)]
+pub struct OverlaySample {
+    pub speed: f64,
+    pub gear: i32,
+    pub throttle: f64,
+    pub brake: f64,
+}
+
+#[derive(Default)]
+pub struct LiveTelemetry(Mutex<Option<(f64, Instant, OverlaySample)>>);
+
+impl LiveTelemetry {
+    fn update(&self, elapsed: f64, sample: OverlaySample) {
+        let mut latest = self.0.lock().unwrap();
+        if latest
+            .as_ref()
+            .is_none_or(|(previous, _, _)| *previous != elapsed)
+        {
+            *latest = Some((elapsed, Instant::now(), sample));
+        }
+    }
+
+    fn clear(&self) {
+        *self.0.lock().unwrap() = None;
+    }
+
+    pub fn sample(&self) -> Option<OverlaySample> {
+        let (_, updated, sample) = (*self.0.lock().unwrap())?;
+        // A Windows mapping can retain its last frame after the simulator exits.
+        (updated.elapsed() < Duration::from_secs(1)).then_some(sample)
+    }
+}
+
 // ── Recorder state (shared with Tauri commands) ───────────────────────────────
 
 #[derive(Serialize, Clone, PartialEq, Debug)]
@@ -84,15 +117,15 @@ impl RecorderState {
 ///
 /// The loop writes completed laps as JSON files into `buffer_dir` and keeps
 /// `state` updated so Tauri commands can reflect the current status in the UI.
-pub fn start(buffer_dir: PathBuf, state: Arc<Mutex<RecorderState>>) {
+pub fn start(buffer_dir: PathBuf, state: Arc<Mutex<RecorderState>>, live: Arc<LiveTelemetry>) {
     thread::spawn(move || {
-        run_loop(&buffer_dir, &state);
+        run_loop(&buffer_dir, &state, &live);
     });
 }
 
 // ── Recording loop ────────────────────────────────────────────────────────────
 
-fn run_loop(buffer_dir: &Path, state: &Arc<Mutex<RecorderState>>) {
+fn run_loop(buffer_dir: &Path, state: &Arc<Mutex<RecorderState>>, live: &LiveTelemetry) {
     const POLL_INTERVAL: Duration = Duration::from_millis(50); // 20 Hz
 
     let mut reader: Option<SharedMemoryReader> = None;
@@ -110,6 +143,7 @@ fn run_loop(buffer_dir: &Path, state: &Arc<Mutex<RecorderState>>) {
                     reader = Some(r);
                 }
                 Err(_) => {
+                    live.clear();
                     set_state(state, RecorderStatus::LmuNotRunning, -1, count_pending(buffer_dir));
                     continue;
                 }
@@ -119,6 +153,7 @@ fn run_loop(buffer_dir: &Path, state: &Arc<Mutex<RecorderState>>) {
         let data = match reader.as_ref().unwrap().read() {
             Ok(d) => d,
             Err(e) => {
+                live.clear();
                 eprintln!("[telemetry] Read error, disconnecting: {}", e);
                 reader = None;
                 set_state(state, RecorderStatus::LmuNotRunning, -1, count_pending(buffer_dir));
@@ -132,6 +167,7 @@ fn run_loop(buffer_dir: &Path, state: &Arc<Mutex<RecorderState>>) {
 
         // Player not in a vehicle — idle state.
         if telem.player_has_vehicle == 0 {
+            live.clear();
             if current_lap != -1 {
                 eprintln!(
                     "[telemetry] Player left vehicle, discarding {} buffered samples",
@@ -145,11 +181,29 @@ fn run_loop(buffer_dir: &Path, state: &Arc<Mutex<RecorderState>>) {
         }
 
         let idx = telem.player_vehicle_idx as usize;
-        if idx >= telem.active_vehicles as usize {
+        if idx >= telem.active_vehicles as usize || idx >= telem.telem_info.len() {
+            live.clear();
             continue;
         }
 
         let info = &telem.telem_info[idx];
+        // Compute speed from local velocity vector magnitude (m/s → km/h).
+        let v = &info.mLocalVel;
+        let speed = (v.x * v.x + v.y * v.y + v.z * v.z).sqrt() * 3.6;
+        let sample = OverlaySample {
+            speed,
+            gear: info.mGear,
+            throttle: info.mUnfilteredThrottle,
+            brake: info.mUnfilteredBrake,
+        };
+        if [info.mElapsedTime, sample.speed, sample.throttle, sample.brake]
+            .iter()
+            .all(|value| value.is_finite())
+        {
+            live.update(info.mElapsedTime, sample);
+        } else {
+            live.clear();
+        }
         let lap = info.mLapNumber;
 
         // Lap 0 or negative means the formation/out lap before timing starts.
@@ -184,20 +238,16 @@ fn run_loop(buffer_dir: &Path, state: &Arc<Mutex<RecorderState>>) {
             current_lap = lap;
         }
 
-        // Compute speed from local velocity vector magnitude (m/s → km/h).
-        let v = &info.mLocalVel;
-        let speed = (v.x * v.x + v.y * v.y + v.z * v.z).sqrt() * 3.6;
-
         samples.push(TelemetrySample {
             t: info.mElapsedTime,
             x: info.mPos.x,
             y: info.mPos.y,
             z: info.mPos.z,
             speed,
-            gear: info.mGear,
+            gear: sample.gear,
             rpm: info.mEngineRPM,
-            throttle: info.mUnfilteredThrottle,
-            brake: info.mUnfilteredBrake,
+            throttle: sample.throttle,
+            brake: sample.brake,
             steering: info.mUnfilteredSteering,
             clutch: info.mUnfilteredClutch,
         });
@@ -326,4 +376,33 @@ fn count_pending(buffer_dir: &Path) -> usize {
                 .count()
         })
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn overlay_expires_a_frozen_frame_and_recovers_on_new_telemetry() {
+        let live = LiveTelemetry::default();
+        let sample = OverlaySample {
+            speed: 132.0,
+            gear: 3,
+            throttle: 0.75,
+            brake: 0.0,
+        };
+
+        live.update(5.0, sample);
+        assert_eq!(live.sample().unwrap().speed, 132.0);
+
+        // Freeze the simulator clock without a real-time sleep.
+        live.0.lock().unwrap().as_mut().unwrap().1 -= Duration::from_secs(2);
+        live.update(5.0, sample);
+        assert!(live.sample().is_none());
+
+        live.update(5.05, OverlaySample { gear: 4, ..sample });
+        assert_eq!(live.sample().unwrap().gear, 4);
+        live.clear();
+        assert!(live.sample().is_none());
+    }
 }

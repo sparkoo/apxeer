@@ -8,7 +8,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -16,7 +16,51 @@ use base64::Engine;
 use sha2::{Digest, Sha256};
 
 use settings::Settings;
-use telemetry::{RecorderState, RecorderStatus};
+use telemetry::{LiveTelemetry, OverlaySample, RecorderState, RecorderStatus};
+
+const OVERLAY_WINDOW: &str = "telemetry-overlay";
+
+#[tauri::command]
+fn get_overlay_telemetry(state: tauri::State<Arc<LiveTelemetry>>) -> Option<OverlaySample> {
+    state.sample()
+}
+
+#[tauri::command]
+async fn set_overlay_visible(app: tauri::AppHandle, visible: bool) -> Result<(), String> {
+    if let Some(overlay) = app.get_webview_window(OVERLAY_WINDOW) {
+        return if visible {
+            overlay.show().map_err(|err| err.to_string())
+        } else {
+            overlay.destroy().map_err(|err| err.to_string())
+        };
+    }
+
+    if !visible {
+        return Ok(());
+    }
+
+    let overlay = WebviewWindowBuilder::new(&app, OVERLAY_WINDOW, WebviewUrl::App("overlay.html".into()))
+        .title("Apxeer telemetry")
+        .inner_size(256.0, 150.0)
+        .position(24.0, 24.0)
+        .visible(false)
+        .transparent(true)
+        .decorations(false)
+        .shadow(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .focused(false)
+        .focusable(false)
+        .resizable(false)
+        .build()
+        .map_err(|err| err.to_string())?;
+
+    if let Err(err) = overlay.set_ignore_cursor_events(true).and_then(|()| overlay.show()) {
+        let _ = overlay.destroy();
+        return Err(err.to_string());
+    }
+    Ok(())
+}
 
 // ── LMU path detection ────────────────────────────────────────────────────────
 
@@ -374,6 +418,13 @@ struct ConfigDir(PathBuf);
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                if let Some(overlay) = window.get_webview_window(OVERLAY_WINDOW) {
+                    let _ = overlay.destroy();
+                }
+            }
+        })
         .setup(|app| {
             let app_dir = app
                 .path()
@@ -402,8 +453,10 @@ pub fn run() {
 
             // Start telemetry recorder.
             let recorder_state = Arc::new(Mutex::new(RecorderState::initial()));
+            let live_telemetry = Arc::new(LiveTelemetry::default());
             app.manage(recorder_state.clone());
-            telemetry::start(buffer_dir.clone(), recorder_state);
+            app.manage(live_telemetry.clone());
+            telemetry::start(buffer_dir.clone(), recorder_state, live_telemetry);
 
             // Start XML results watcher.
             let lmu_results_dir = {
@@ -430,6 +483,8 @@ pub fn run() {
             login_oauth,
             logout,
             get_auth_status,
+            get_overlay_telemetry,
+            set_overlay_visible,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

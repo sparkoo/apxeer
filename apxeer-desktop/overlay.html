@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/src/overlay.css" />
+    <script type="module" src="/src/overlay.ts"></script>
+    <title>Apxeer Telemetry Overlay</title>
+  </head>
+  <body>
+    <main class="hud" aria-label="Live telemetry">
+      <p id="telemetry-status" role="status">Waiting for LMU telemetry</p>
+      <div id="telemetry" hidden>
+        <div class="readouts">
+          <div class="gear" aria-label="Gear" id="gear"></div>
+          <div class="speed"><span id="speed"></span><span class="unit">km/h</span></div>
+        </div>
+        <div class="pedals">
+          <label for="throttle">Throttle</label>
+          <progress id="throttle" max="1" value="0"></progress>
+          <label for="brake">Brake</label>
+          <progress id="brake" max="1" value="0"></progress>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

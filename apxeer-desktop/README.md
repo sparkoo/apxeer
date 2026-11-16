@@ -26,3 +26,13 @@ npm run tauri -- dev
 4. Sign in and upload manually, or enable auto-upload in Settings.
 
 Settings and pending uploads live under the Tauri app data directory.
+
+## Show live telemetry in LMU
+
+1. Run Le Mans Ultimate in borderless windowed mode on the primary display.
+2. In Apxeer's recorder panel, enable **Show telemetry overlay**.
+3. Enter a car. The click-through HUD in the upper-left corner shows speed in
+   km/h, gear, throttle, and brake, including on the out-lap.
+
+The HUD stays above other windows while enabled. Turn it off in the recorder
+panel or close Apxeer to remove it. It works locally without signing in.
