@@ -10,10 +10,13 @@ Apxeer is a simracing telemetry platform — "Strava for sim racing". The deskto
 apxeer-desktop/  — Tauri 2 app (Windows only)
 api/             — Go REST API
 apxeer-web/      — Preact + Vite web frontend (Cloudflare Workers)
-lmu-telemetry/   — LMU C++ headers + sample XML result files
+lmu-telemetry/   — LMU XML test fixtures and optional local SDK headers
 plans/           — SPEC.md (original product spec)
 docs/            — Architecture and design documentation (this folder)
 ```
+
+Keep LMU SDK headers under `lmu-telemetry/` for local reference. Git ignores
+these headers, and the desktop build uses the Rust shared memory definitions.
 
 ## Stack
 

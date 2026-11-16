@@ -24,3 +24,6 @@ node_modules/
 
 # Rust
 target/
+
+# Local LMU SDK headers
+/lmu-telemetry/*.hpp
