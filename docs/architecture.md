@@ -37,6 +37,13 @@ Follow the [local setup](../README.md#local-development) to run Postgres, the AP
 4. **Blob storage** — API stores telemetry as gzip JSON files in Cloudflare R2 at `telemetry/{clerk_user_id}/{lap_id}.json.gz`; the `laps.telemetry_url` DB column stores the R2 object key. Telemetry samples are **not** stored as DB rows.
 5. **Compare** — Web frontend fetches `GET /api/compare?lap_a=:id&lap_b=:id`, API downloads both blobs from R2, decompresses them, and returns both sample arrays for the frontend to render.
 
+The desktop HUD reads the latest player sample from the same recording loop via
+the local `get_overlay_telemetry` Tauri command. The loop updates the HUD sample
+before applying lap recording rules, so the HUD can show out-lap telemetry. A
+sample expires after one second without a change in the simulator's telemetry
+timestamp. The recorder toggle opens a transparent, click-through `overlay.html`
+webview on Windows and closes it when disabled.
+
 ## Auth Flow
 
 ### Web frontend

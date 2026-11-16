@@ -17,6 +17,7 @@ Apxeer records your lap telemetry from Le Mans Ultimate at 20Hz, uploads it to a
 ## Features
 
 - 20Hz telemetry recording via LMU shared memory (Windows desktop app)
+- Live speed, gear, throttle, and brake overlay for borderless windowed LMU
 - Lap-by-lap delta comparison with track map overlay
 - Race session stats parsed from LMU XML result files
 - Web app for visual analysis — no desktop app needed to browse

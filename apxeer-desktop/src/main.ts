@@ -17,6 +17,24 @@ interface AuthStatus {
   email: string;
 }
 
+const overlayToggle = document.querySelector<HTMLInputElement>("#telemetry-overlay")!;
+const overlayMessage = document.getElementById("overlay-msg")!;
+overlayToggle.checked = false;
+overlayToggle.addEventListener("change", async () => {
+  const visible = overlayToggle.checked;
+  overlayToggle.disabled = true;
+  overlayMessage.hidden = true;
+  try {
+    await invoke("set_overlay_visible", { visible });
+  } catch (error) {
+    overlayToggle.checked = !visible;
+    overlayMessage.textContent = `Could not ${visible ? "show" : "hide"} the overlay. ${error}`;
+    overlayMessage.hidden = false;
+  } finally {
+    overlayToggle.disabled = false;
+  }
+});
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 let authPollInterval: ReturnType<typeof setInterval> | null = null;
