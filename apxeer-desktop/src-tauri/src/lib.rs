@@ -55,6 +55,11 @@ async fn set_overlay_visible(app: tauri::AppHandle, visible: bool) -> Result<(),
         .build()
         .map_err(|err| err.to_string())?;
 
+    // The main window can close while Tauri is creating the overlay.
+    if app.get_webview_window("main").is_none() {
+        return overlay.destroy().map_err(|err| err.to_string());
+    }
+
     if let Err(err) = overlay.set_ignore_cursor_events(true).and_then(|()| overlay.show()) {
         let _ = overlay.destroy();
         return Err(err.to_string());
@@ -418,13 +423,6 @@ struct ConfigDir(PathBuf);
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .on_window_event(|window, event| {
-            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
-                if let Some(overlay) = window.get_webview_window(OVERLAY_WINDOW) {
-                    let _ = overlay.destroy();
-                }
-            }
-        })
         .setup(|app| {
             let app_dir = app
                 .path()
@@ -486,6 +484,18 @@ pub fn run() {
             get_overlay_telemetry,
             set_overlay_visible,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| match event {
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } if label == "main" => {
+                if let Some(overlay) = app.get_webview_window(OVERLAY_WINDOW) {
+                    let _ = overlay.destroy();
+                }
+            }
+            _ => {}
+        });
 }
